@@ -156,25 +156,75 @@ class SitePlanner {
     setRobot(pose){
         if(!pose||![pose.x,pose.y].every(Number.isFinite))return;
         this.robot={x:pose.x,y:pose.y,z:pose.z||0,yaw:pose.yaw||0};
-        this.drawMarkers();
+        this.robotMarker.position.set(this.robot.x,this.robot.y,20);
+        this.robotMarker.rotation.set(0,0,this.robot.yaw);
+        this.robotRing.position.set(this.robot.x,this.robot.y,19);
+        this.robotLabel.position.set(this.robot.x,this.robot.y,21);
+        const c=document.getElementById('site-robot-coords');
+        if(c)c.textContent='ROBOT X '+pose.x.toFixed(2)+' · Y '+pose.y.toFixed(2);
     }
     setWaypoints(points){this.waypoints=points||[];this.drawMarkers();}
-    drawMarkers(){
-        while(this.markers.children.length>1){
-            const o=this.markers.children[1];this.markers.remove(o);
+    clearChildren(group) {
+        while(group.children.length) {
+            const o=group.children[0];group.remove(o);
             if(o.geometry)o.geometry.dispose();
             if(o.material)o.material.dispose();
         }
-        this.robotMarker.position.set(this.robot.x,this.robot.y,1);
-        this.robotMarker.rotation.set(0,0,this.robot.yaw||0);
-        const markerMaterial=new THREE.MeshBasicMaterial({color:0x49e699,depthTest:false});
+    }
+    drawMarkers(){
+        this.clearChildren(this.wpMarkers);
+        this.clearChildren(this.draftMarkers);
+        const material=()=>new THREE.MeshBasicMaterial({color:0x0f8f54,depthTest:false,depthWrite:false});
         for(const wp of this.waypoints){
             if(![wp.x,wp.y].every(Number.isFinite))continue;
-            const m=new THREE.Mesh(new THREE.SphereGeometry(.65,10,8),markerMaterial);
-            m.position.set(wp.x,wp.y,2);m.renderOrder=101;
-            this.markers.add(m);
+            const m=new THREE.Mesh(new THREE.CircleGeometry(1,24),material());
+            m.position.set(wp.x,wp.y,22);m.renderOrder=103;
+            this.wpMarkers.add(m);
         }
-        // Reuse material carefully: the group is redrawn infrequently.
+        for(const wp of this.drafts){
+            const m=new THREE.Mesh(new THREE.RingGeometry(.65,1.05,24),
+                new THREE.MeshBasicMaterial({color:0xffb400,depthTest:false,side:THREE.DoubleSide}));
+            m.position.set(wp.x,wp.y,23);m.renderOrder=104;
+            this.draftMarkers.add(m);
+        }
+    }
+    updateMarkerSize() {
+        const pixelSize=(this.camera.top-this.camera.bottom)/
+            Math.max(this.container.clientHeight,1)/Math.max(this.camera.zoom,0.00001);
+        this.robotMarker.scale.setScalar(9*pixelSize);
+        this.robotRing.scale.setScalar(9*pixelSize);
+        this.robotLabel.scale.set(75*pixelSize,22*pixelSize,1);
+        this.robotLabel.position.set(this.robot.x,this.robot.y+22*pixelSize,21);
+        for(const g of [this.wpMarkers,this.draftMarkers])
+            for(const m of g.children)m.scale.setScalar(8*pixelSize);
+    }
+    zoom(factor) {
+        this.camera.zoom=Math.max(.1,Math.min(100,this.camera.zoom*factor));
+        this.camera.updateProjectionMatrix();
+    }
+    centerRobot() {
+        if(!this.ready){this.setStatus('Load the GLB before centering on the rover.');return;}
+        this.controls.target.set(this.robot.x,this.robot.y,0);
+        this.camera.position.set(this.robot.x,this.robot.y,150);
+        this.camera.zoom=Math.max(this.camera.zoom,3);
+        this.camera.updateProjectionMatrix();
+        this.controls.update();
+        this.setStatus('Centered on rover at X '+this.robot.x.toFixed(2)+', Y '+this.robot.y.toFixed(2)+'.');
+    }
+    sendValidDrafts() {
+        if(!this.ready||!this.confirmed){this.describe();return;}
+        if(!this.drafts.length){this.setStatus('No visual drafts to send. Click the site to add points.');return;}
+        let sent=0;
+        const remaining=[];
+        for(const p of this.drafts){
+            const test=this.targetIsKnownFree(p.x,p.y);
+            if(test.ok&&this.callback(p.x,p.y)!==false)sent++;
+            else remaining.push(p);
+        }
+        this.drafts=remaining;
+        this.drawMarkers();
+        this.setStatus(sent+' waypoint(s) submitted for server validation. '+remaining.length+
+            ' draft(s) remain pending map coverage or mission editing availability.');
     }
     // Convert world coordinates into the current ROS occupancy grid. A known,
     // free target is required; the GLB visual geometry alone is not a safety map.
