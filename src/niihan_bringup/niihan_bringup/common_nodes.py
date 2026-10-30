@@ -159,8 +159,10 @@ class HealthSupervisor(Node):
         if self.require_cliff and (self.cliff.startswith(('FAULT','UNKNOWN')) or now-self.last.get('cliff',-math.inf)>self.timeout):
             faults.append('cliff_unavailable')
         permission=Bool();permission.data=not faults;self.allowed.publish(permission)
+        ages={name:(round(now-self.last[name],3) if name in self.last else None) for name in required}
         status=String();status.data=json.dumps({'ready':not faults,'faults':faults,'gnss_quality':self.quality,
-                                               'require_gnss':self.require_gnss,'cliff':self.cliff})
+                                               'require_gnss':self.require_gnss,'cliff':self.cliff,
+                                               'sensor_ages_s':ages,'sensor_timeout_s':self.timeout})
         self.status.publish(status)
 
 
