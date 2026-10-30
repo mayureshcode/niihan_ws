@@ -258,12 +258,27 @@ class SitePlanner {
         const p=new THREE.Vector3();
         if(!this.raycaster.ray.intersectPlane(this.groundPlane,p))return;
         const test=this.targetIsKnownFree(p.x,p.y);
-        if(!test.ok){this.setStatus(test.reason);return;}
-        this.setStatus('Waypoint candidate: X='+p.x.toFixed(2)+' Y='+p.y.toFixed(2)+' — requesting dashboard insertion.');
-        this.callback(p.x,p.y);
+        if(test.ok) {
+            const sent=this.callback(p.x,p.y);
+            this.setStatus(sent===false
+                ? 'Waypoint not submitted. Check mission state and connection; no motion command sent.'
+                : 'Waypoint sent for validation at X '+p.x.toFixed(2)+', Y '+p.y.toFixed(2)+'. Check mission table.');
+            return;
+        }
+        // Unobserved/off-map space can be planned visually but must never be
+        // sent to Nav2 before it is mapped and verified free.
+        if(this.drafts.length>=50){
+            this.setStatus('Maximum 50 unsent drafts reached. Map more space before adding others.');
+            return;
+        }
+        this.drafts.push({x:p.x,y:p.y});
+        this.drawMarkers();
+        this.setStatus('DRAFT '+this.drafts.length+' (not sent): X '+p.x.toFixed(2)+', Y '+p.y.toFixed(2)+
+            '. '+test.reason+' Use SEND VALID DRAFTS after these lanes are mapped.');
     }
     fit(){
         if(!this.ready)return;
+        this.camera.zoom=1;
         this.siteRoot.updateMatrixWorld(true);
         const bounds=new THREE.Box3().setFromObject(this.siteRoot);
         if(bounds.isEmpty())return;
