@@ -173,10 +173,27 @@ class MotionGateway(Node):
         self.max_linear=parameter(self,'max_linear_speed',0.3)
         self.max_angular=parameter(self,'max_angular_speed',0.6)
         self.pub=self.create_publisher(Twist,'/niihan/drive/cmd_vel',10)
+        self.add_on_set_parameters_callback(self._on_parameters)
         self.create_subscription(Twist,'/niihan/cmd_vel',self.command,10)
         self.create_subscription(Bool,'/niihan/motion_permitted',self.permission,10)
         self.create_subscription(Bool,'/niihan/e_stop',self.estop,LATCHED)
         self.create_timer(0.02,self.tick,clock=self.steady)
+
+    def _on_parameters(self,params):
+        # A successful parameter update must agree with the real DriveState.
+        # Runtime disable is immediate and latched; enabling requires restart.
+        for param in params:
+            if param.name == 'drive_enabled':
+                if not isinstance(param.value,bool):
+                    return SetParametersResult(successful=False,reason='drive_enabled must be boolean')
+                if param.value and not self.state.enabled:
+                    return SetParametersResult(successful=False,reason='Restart with drive_enabled:=true, then re-arm via safety controls')
+        if any(p.name=='drive_enabled' and not p.value for p in params):
+            self.state.enabled=False
+            self.state.estop=True
+            self.state.received=-math.inf
+            self.pub.publish(Twist())
+        return SetParametersResult(successful=True)
 
     def command(self,msg):
         self.state.receive(msg.linear.x,msg.angular.z,time.monotonic())
