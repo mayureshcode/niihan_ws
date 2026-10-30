@@ -36,10 +36,28 @@ let tempPolygon = [];
 // 3D Viewer
 let viewer3d = null;
 let viewer2d = null;
+let sitePlanner = null;
 
 window.addEventListener('load', () => {
     viewer2d = new Viewer2D('map-canvas');
     viewer2d.setOnClickCallback(onMapClick);
+    try {
+        sitePlanner = new SitePlanner('site-planner-canvas', (x,y) => {
+            if (missionIsRunning) {
+                showCommandStatus('Cancel the active mission before editing waypoints.');
+                return;
+            }
+            if (interactionMode !== 'ADD_WP') {
+                showCommandStatus('Select ADD WAYPOINT, then click an open lane on the visual site map.');
+                return;
+            }
+            onMapClick(x,y,robotPose.z);
+        });
+    } catch (error) {
+        const status=document.getElementById('site-planner-status');
+        if(status)status.textContent='Visual planner unavailable: '+error.message;
+        console.warn('Visual site planner unavailable:',error);
+    }
     // An unavailable CDN or WebGL context must not disable the 2D planner.
     try {
         viewer3d = new Viewer3D('three-canvas-container');
@@ -65,6 +83,8 @@ window.addEventListener('load', () => {
             } else if (btn.dataset.target === 'view-2d') {
                 viewer2d.onWindowResize();
                 viewer2d.requestRender();
+            } else if (btn.dataset.target === 'view-site' && sitePlanner) {
+                sitePlanner.resize();
             }
         });
     });
@@ -137,6 +157,7 @@ function connectWebSocket() {
         } else if (data.type === "map") {
             mapData = data;
             const valid = viewer2d && viewer2d.updateMap(mapData);
+            if (sitePlanner && valid) sitePlanner.setMap(mapData);
             document.getElementById('map-status-2d').textContent = valid ?
                 `2D MAP: READY | ${data.width} × ${data.height} | ${data.resolution} m/cell | ${data.frame_id || 'map'}` :
                 '2D MAP: INVALID GRID RECEIVED';
@@ -221,6 +242,7 @@ function updateTelemetry(data) {
     elNav.className = nav2Ready ? "status-badge ok" : "status-badge error";
 
     robotPose = data.pose;
+    if (sitePlanner) sitePlanner.setRobot(robotPose);
     if (viewer3d) viewer3d.updateRobotPose(robotPose.x, robotPose.y, robotPose.z, robotPose.yaw, robotPose.roll, robotPose.pitch);
     if (viewer2d) viewer2d.updateRobotPose(robotPose.x, robotPose.y, robotPose.yaw);
 
@@ -234,6 +256,7 @@ function updateTelemetry(data) {
         waypointSignature = signature;
         if (viewer3d) viewer3d.updateWaypoints(waypoints);
         if (viewer2d) viewer2d.updateWaypoints(waypoints);
+        if (sitePlanner) sitePlanner.setWaypoints(waypoints);
     }
     renderWaypointTable();
     const completed = waypoints.filter(waypoint => waypoint.status === 'COMPLETED').length;
