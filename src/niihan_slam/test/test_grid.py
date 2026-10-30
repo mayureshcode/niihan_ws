@@ -13,3 +13,14 @@ def test_registration_recovers_known_planar_transform():
 
 def test_no_overlap_rejected():
     p=np.arange(300).reshape(-1,3).astype(float);_,rmse,overlap=icp_planar(p,cKDTree(p+1000),[0.,0.,0.]);assert np.isinf(rmse);assert overlap==0
+
+
+def test_configurable_seaport_grid_extent_and_invalid_configuration():
+    import pytest
+    grid=Grid(.2,1200)
+    assert grid.size == 1200
+    assert grid.origin == pytest.approx(-120.0)
+    assert grid.cells([[0.0,0.0],[119.8,119.8]]).tolist() == [[600,600],[1199,1199]]
+    for resolution,size in [(0.0,600),(-0.1,600),(float('nan'),600),(.1,31),(.1,2049)]:
+        with pytest.raises(ValueError):
+            Grid(resolution,size)

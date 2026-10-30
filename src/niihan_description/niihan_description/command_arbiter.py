@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import math
+import json
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.clock import Clock, ClockType
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 class CommandArbiter(Node):
     def __init__(self):
@@ -20,6 +21,9 @@ class CommandArbiter(Node):
         self.watchdog_timeout = self.get_parameter('watchdog_timeout').value
 
         self.cmd_pub = self.create_publisher(Twist, '/niihan/cmd_vel', 10)
+        self.status_pub = self.create_publisher(String, '/niihan/command_arbiter/status', 10)
+        self.active_source = None
+        self.active_age_s = None
 
         self.estop_active = False
         self._watchdog_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -38,6 +42,7 @@ class CommandArbiter(Node):
         self.cmd_times = {3: None, 2: None, 1: None}
 
         self.timer = self.create_timer(0.1, self.timer_cb, clock=self._watchdog_clock)
+        self.status_timer = self.create_timer(0.2, self.publish_status, clock=self._watchdog_clock)
 
     def estop_cb(self, msg):
         self.estop_active = msg.data
@@ -45,6 +50,8 @@ class CommandArbiter(Node):
         self.cmds = {3: None, 2: None, 1: None}
         self.cmd_times = {3: None, 2: None, 1: None}
         if self.estop_active:
+            self.active_source = None
+            self.active_age_s = None
             self.cmd_pub.publish(Twist()) # synchronous zero
 
     def cmd_cb(self, msg, priority):
@@ -60,6 +67,8 @@ class CommandArbiter(Node):
         self.evaluate_commands()
 
     def evaluate_commands(self):
+        self.active_source = None
+        self.active_age_s = None
         if self.estop_active:
             self.cmd_pub.publish(Twist())
             return
@@ -69,6 +78,8 @@ class CommandArbiter(Node):
             if self.cmds[p] is not None:
                 dt = (now - self.cmd_times[p]).nanoseconds / 1e9
                 if 0 <= dt <= self.watchdog_timeout:
+                    self.active_source = {3:'manual',2:'recovery',1:'nav'}[p]
+                    self.active_age_s = round(dt,3)
                     self.cmd_pub.publish(self.cmds[p])
                     return
 
@@ -77,6 +88,14 @@ class CommandArbiter(Node):
 
     def timer_cb(self):
         self.evaluate_commands()
+
+    def publish_status(self):
+        self.status_pub.publish(String(data=json.dumps({
+            'estop': self.estop_active,
+            'active_source': self.active_source,
+            'source_age_s': self.active_age_s,
+            'watchdog_timeout_s': self.watchdog_timeout,
+        })))
 
 def main(args=None):
     rclpy.init(args=args)

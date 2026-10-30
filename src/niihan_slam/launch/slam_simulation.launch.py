@@ -1,5 +1,28 @@
 """Visible portable simulation with estimated 3D SLAM, never truth-fed TF."""
 import os,json,tempfile,shutil
+
+
+def _existing_gazebo_servers():
+    """Find standalone Gazebo servers which would share /clock and bridges.
+
+    Ignore Gazebo GUI processes and our own launch command. /proc is Linux-only,
+    matching the Ubuntu simulation target. This performs no process killing.
+    """
+    servers=[]
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit() or int(pid)==os.getpid():
+            continue
+        try:
+            with open(f'/proc/{pid}/cmdline','rb') as f:
+                argv=[a.decode('utf-8','replace') for a in f.read().split(b'\0') if a]
+        except (OSError,PermissionError):
+            continue
+        if len(argv)<3 or os.path.basename(argv[0])!='gz' or argv[1]!='sim':
+            continue
+        if any(a.endswith('.sdf') or '.sdf' in a for a in argv[2:]):
+            servers.append((pid,' '.join(argv[:5])))
+    return servers
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument,IncludeLaunchDescription,OpaqueFunction
@@ -9,6 +32,10 @@ from launch.conditions import IfCondition
 from launch_ros.actions import Node
 
 def stack(context):
+    existing=_existing_gazebo_servers()
+    if existing:
+        lines='; '.join(f'PID {pid}: {command}' for pid,command in existing)
+        raise RuntimeError('Another Gazebo server is already running ('+lines+'). Stop the previous simulation in its launch terminal before starting a new one. Refusing to create competing /clock and sensor publishers.')
     share=get_package_share_directory('niihan_slam');desc=get_package_share_directory('niihan_description');dash=get_package_share_directory('niihan_dashboard')
     from niihan_slam.map_store import environment_directory,current_map
     output=LaunchConfiguration('output_directory').perform(context);mode=LaunchConfiguration('mode').perform(context)
@@ -41,16 +68,16 @@ def stack(context):
     clock={'use_sim_time':True}
     def node(package,executable,name,params=None,**kw):return Node(package=package,executable=executable,name=name,output='screen',parameters=[clock]+(params or []),**kw)
     def include(path,args):return IncludeLaunchDescription(PythonLaunchDescriptionSource(path),launch_arguments=args.items())
-    nodes=[include(os.path.join(desc,'launch','niihan_gazebo.launch.py'),{'world':LaunchConfiguration('world'),'spawn_x':LaunchConfiguration('spawn_x'),'spawn_y':LaunchConfiguration('spawn_y'),'headless':LaunchConfiguration('headless'),'seed':LaunchConfiguration('seed'),'external_stack':'true','minimal_sensors':'true','mapping':'false','launch_nav2':'false','vortex_3d':'false','cliff_detect':'false','rqt_cam':'false','patrol':'false'}),
+    nodes=[include(os.path.join(desc,'launch','niihan_gazebo.launch.py'),{'world':LaunchConfiguration('world'),'spawn_x':LaunchConfiguration('spawn_x'),'spawn_y':LaunchConfiguration('spawn_y'),'spawn_z':LaunchConfiguration('spawn_z'),'headless':LaunchConfiguration('headless'),'seed':LaunchConfiguration('seed'),'external_stack':'true','minimal_sensors':'true','mapping':'false','launch_nav2':'false','vortex_3d':'false','cliff_detect':'false','rqt_cam':'false','patrol':'false'}),
         node('glim_ros','glim_rosnode','glim_ros',[{'config_path':cfg,'dump_on_unload':False}],remappings=[('/tf','/niihan/lio/tf')]),
         node('niihan_slam','tf_filter','lio_tf_filter',[{'mapping':mode=='mapping'}]),
-        node('niihan_slam','map_bridge','slam_map_bridge',[{'mapping':mode=='mapping','output_directory':output,'map_file':map_file or '', 'environment_id':environment}]),
+        node('niihan_slam','map_bridge','slam_map_bridge',[{'mapping':mode=='mapping','output_directory':output,'map_file':map_file or '', 'environment_id':environment,'resolution':float(LaunchConfiguration('map_resolution').perform(context)),'map_size_cells':int(LaunchConfiguration('map_size_cells').perform(context))}]),
         node('niihan_description','command_arbiter','command_arbiter'),
         node('niihan_bringup','gazebo_drive','gazebo_drive',[{'relay_gnss':LaunchConfiguration('gnss_source').perform(context)=='gazebo'}]),
         node('niihan_bringup','rtk_alignment','rtk_alignment',[{'alignment_file':alignment,'environment_id':environment,'allow_simulated_rtk':LaunchConfiguration('allow_simulated_rtk').perform(context)=='true'}]),
         node('niihan_bringup','sensor_adapter','sensor_adapter',[{'gravity_aligned_height':True,'scan_frame':'base_nav','relay_camera':False}]),
         node('niihan_bringup','health_supervisor','health_supervisor',[{'sensor_timeout':2.0}]),
-        node('niihan_bringup','motion_gateway','motion_gateway',[{'drive_enabled':True}]),
+        node('niihan_bringup','motion_gateway','motion_gateway',[{'drive_enabled':LaunchConfiguration('drive_enabled').perform(context).lower()=='true'}]),
         include(os.path.join(desc,'launch','niihan_navigation.launch.py'),{'use_sim_time':'true','params_file':os.path.join(share,'config','nav2_3d_jazzy.yaml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'nav2_3d.yaml'),'bt_xml':os.path.join(share,'config','navigate_to_pose_position_jazzy.xml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'navigate_to_pose_position.xml')}),
         node('rviz2','rviz2','rviz2',arguments=['-d',os.path.join(share,'config','slam.rviz')],condition=IfCondition(LaunchConfiguration('rviz'))),
         node('niihan_dashboard','dashboard_node','niihan_dashboard_node',[{'require_health':True,'slam_cloud_topic':'/niihan/slam/map_cloud','rtk_goal_verification':bool(alignment),'arrival_dwell_seconds':1.0}])]
@@ -60,4 +87,4 @@ def stack(context):
     return nodes
 
 def generate_launch_description():
-    return LaunchDescription([DeclareLaunchArgument(n,default_value=v) for n,v in [('world','niihan_portable_site.sdf'),('headless','false'),('rviz','true'),('seed','42'),('spawn_x','-10.0'),('spawn_y','0.0'),('mode','auto'),('environment_id','portable-site'),('map_directory',os.path.expanduser('~/.local/share/niihan/maps')),('map_file',''),('rtk_alignment_file',''),('gnss_source','gazebo'),('allow_simulated_rtk','false'),('initial_x','0.0'),('initial_y','0.0'),('initial_yaw','0.0'),('output_directory','')]]+[OpaqueFunction(function=stack)])
+    return LaunchDescription([DeclareLaunchArgument(n,default_value=v) for n,v in [('world','niihan_portable_site.sdf'),('headless','false'),('rviz','true'),('seed','42'),('spawn_x','-10.0'),('spawn_y','0.0'),('spawn_z','0.15'),('drive_enabled','false'),('map_resolution','0.1'),('map_size_cells','600'),('mode','auto'),('environment_id','portable-site'),('map_directory',os.path.expanduser('~/.local/share/niihan/maps')),('map_file',''),('rtk_alignment_file',''),('gnss_source','gazebo'),('allow_simulated_rtk','false'),('initial_x','0.0'),('initial_y','0.0'),('initial_yaw','0.0'),('output_directory','')]]+[OpaqueFunction(function=stack)])
