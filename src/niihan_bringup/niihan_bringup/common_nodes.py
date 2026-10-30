@@ -7,6 +7,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import PointCloud2, LaserScan, Imu, NavSatFix, Image
