@@ -1,0 +1,36 @@
+name: Pure Python regression
+
+on:
+  pull_request:
+    branches: [feat/l2-3d-slam-release]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install standalone test requirements
+        run: python -m pip install --upgrade pytest numpy scipy
+      - name: Compile changed Python modules
+        run: |
+          python -m py_compile \
+            src/niihan_slam/launch/slam_simulation.launch.py \
+            src/niihan_bringup/niihan_bringup/contracts.py \
+            src/niihan_bringup/niihan_bringup/common_nodes.py \
+            src/niihan_description/niihan_description/command_arbiter.py \
+            src/niihan_slam/niihan_slam/grid.py \
+            src/niihan_slam/niihan_slam/map_bridge.py
+      - name: Run ROS-independent regression tests
+        env:
+          PYTHONPATH: src/niihan_bringup:src/niihan_slam
+        run: |
+          python -m pytest -q \
+            src/niihan_bringup/test/test_contracts.py \
+            src/niihan_bringup/test/test_drive_inhibition_diagnostics.py \
+            src/niihan_slam/test/test_grid.py
