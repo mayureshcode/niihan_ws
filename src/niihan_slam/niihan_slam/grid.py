@@ -9,6 +9,11 @@ def rotation(q):
 
 class Grid:
     def __init__(self,resolution=.1,size=600):
+        # Keep the original 60 m default, but validate explicit larger maps.
+        if not np.isfinite(resolution) or resolution<=0:
+            raise ValueError('Map resolution must be finite and positive')
+        if not isinstance(size,int) or not 32<=size<=2048:
+            raise ValueError('Map size must be an integer in [32, 2048] cells')
         self.resolution=resolution;self.size=size;self.origin=-size*resolution/2
         self.free=np.zeros((size,size),dtype=bool);self.occupied=np.zeros_like(self.free)
     def cells(self,xy):return np.floor((np.asarray(xy)-self.origin)/self.resolution).astype(int)
