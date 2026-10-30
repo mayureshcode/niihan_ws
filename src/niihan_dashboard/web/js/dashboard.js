@@ -44,14 +44,16 @@ window.addEventListener('load', () => {
     try {
         sitePlanner = new SitePlanner('site-planner-canvas', (x,y) => {
             if (missionIsRunning) {
-                showCommandStatus('Cancel the active mission before editing waypoints.');
-                return;
+                showCommandStatus('Cancel the active mission before adding visual waypoints.');
+                return false;
             }
-            if (interactionMode !== 'ADD_WP') {
-                showCommandStatus('Select ADD WAYPOINT, then click an open lane on the visual site map.');
-                return;
+            if (!isConnected) {
+                showCommandStatus('Dashboard disconnected. Waypoint not sent.');
+                return false;
             }
-            onMapClick(x,y,robotPose.z);
+            const sent=sendCommand({action:'add_waypoint', x:x, y:y, z:robotPose.z});
+            if(sent)showCommandStatus('Visual waypoint submitted at X '+x.toFixed(2)+', Y '+y.toFixed(2)+'. Check mission table for confirmation.',true);
+            return sent;
         });
     } catch (error) {
         const status=document.getElementById('site-planner-status');
