@@ -7,7 +7,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 class CommandArbiter(Node):
     def __init__(self):
@@ -21,6 +21,9 @@ class CommandArbiter(Node):
         self.watchdog_timeout = self.get_parameter('watchdog_timeout').value
 
         self.cmd_pub = self.create_publisher(Twist, '/niihan/cmd_vel', 10)
+        self.status_pub = self.create_publisher(String, '/niihan/command_arbiter/status', 10)
+        self.active_source = None
+        self.active_age_s = None
 
         self.estop_active = False
         self._watchdog_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -39,6 +42,7 @@ class CommandArbiter(Node):
         self.cmd_times = {3: None, 2: None, 1: None}
 
         self.timer = self.create_timer(0.1, self.timer_cb, clock=self._watchdog_clock)
+        self.status_timer = self.create_timer(0.2, self.publish_status, clock=self._watchdog_clock)
 
     def estop_cb(self, msg):
         self.estop_active = msg.data
@@ -78,6 +82,14 @@ class CommandArbiter(Node):
 
     def timer_cb(self):
         self.evaluate_commands()
+
+    def publish_status(self):
+        self.status_pub.publish(String(data=json.dumps({
+            'estop': self.estop_active,
+            'active_source': self.active_source,
+            'source_age_s': self.active_age_s,
+            'watchdog_timeout_s': self.watchdog_timeout,
+        })))
 
 def main(args=None):
     rclpy.init(args=args)
