@@ -21,12 +21,18 @@ geofence, or E-STOP. The GLB is a visual aid, never a navigation map.
 5. Verify alignment against **at least two distinct landmarks whose ROS
    map coordinates are known**, then check the explicit confirmation box.
    Changing any alignment field invalidates confirmation.
-6. In a *stationary, non-running mission*, click **ADD WAYPOINT** and then
-   click a known free aisle on the 3D visual site map. The planner checks
-   the current 2D occupancy grid near the selected point, then sends the
-   same `add_waypoint` WebSocket command used by the existing 2D tab.
-   The server performs its existing validation. Clicks do not start driving.
-7. With healthy localization and Nav2, use **WRITE MISSION**,
+6. In a *stationary, non-running mission*, click an open aisle directly in
+   the visual site map — the extra **ADD WAYPOINT** button is not needed
+   on this tab. A known-free click sends the same `add_waypoint` command
+   used by the 2D planner and appears in the mission table after server
+   validation. Clicks do not start driving.
+7. Unknown, occupied, or out-of-map clicks become **yellow/orange visual
+   drafts**, never ROS goals. After mapping more space, select **SEND VALID
+   DRAFTS**. Only points newly verified free are submitted. The others stay
+   visually marked and are not part of the mission.
+8. Use **FIND ROBOT** to zoom to the prominent cyan rover marker, and
+   **ZOOM + / ZOOM −** to adjust site scale. `FIT WORLD` restores overview.
+9. With healthy localization and Nav2, use **WRITE MISSION**,
    **AUTO** mode, and **START MISSION** through the original controls,
    only after verifying that the robot, waypoints, and actual ground align.
 
@@ -35,8 +41,8 @@ geofence, or E-STOP. The GLB is a visual aid, never a navigation map.
 - The GLB **does not create** a full map; grid coverage still depends on
   the SLAM pipeline and robot exploration. A 600×600 grid at 0.1 m/cell
   represents 60×60 m, irrespective of the visible GLB extent.
-- Only **known free** cells in `/map` can become targets. Unknown,
-  occupied, and off-map cells are rejected. The clearance check
+- Only **known free** cells in `/map` can become ROS mission targets.
+  Unknown, occupied, and off-map cells are shown as unsent visual drafts. The clearance check
   uses 0.45 m around the picked coordinate; Nav2 remains the authority
   for route planning.
 - Do not treat GLB geometry as proof that a point is traversable.
@@ -45,6 +51,8 @@ geofence, or E-STOP. The GLB is a visual aid, never a navigation map.
   matching `GLTFLoader`, currently loaded from jsDelivr. If that
   CDN is unavailable, the 2D map and existing ROS mission controls
   continue to work unchanged; the visual tab displays an error.
+- Draft waypoints are browser-session-only and disappear on reload; only
+  successfully submitted points are saved in the live mission manager.
 - Alignment settings and the selected GLB are browser-session-only:
   no model is automatically discovered or uploaded to the server.
 - Verify the actual Gazebo SDF and GLB transforms before relying on
