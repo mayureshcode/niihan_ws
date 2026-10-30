@@ -74,6 +74,18 @@ class DriveState:
             return
         self.linear, self.angular, self.received = linear, angular, now
 
+    def inhibition_reason(self, now):
+        """Explain why motion is inhibited without altering fail-safe output."""
+        if not self.enabled:
+            return 'drive_disabled'
+        if self.estop:
+            return 'e_stop'
+        if not self.permitted:
+            return 'permission_denied'
+        if not 0 <= now - self.received <= self.timeout:
+            return 'command_stale'
+        return None
+
     def output(self, now):
         if not self.enabled or self.estop or not self.permitted or not 0 <= now-self.received <= self.timeout:
             return 0.0, 0.0
