@@ -446,3 +446,33 @@ body {
 }
 
 #tel-health, #tel-gnss { overflow-wrap: anywhere; }
+
+/* Local GLB overview planner; only the model and UI are new navigation surfaces. */
+#site-planner-canvas { position:absolute; inset:0; width:100%; height:100%; }
+#site-planner-canvas canvas { display:block; }
+.site-planner-controls {
+    position:absolute; top:10px; left:10px; right:10px;
+    background:rgba(15,18,22,.92); display:flex; flex-wrap:wrap;
+    align-items:center; gap:9px; border:1px solid #4b5964;
+    border-radius:5px; padding:9px; font-size:12px; z-index:2;
+}
+.site-planner-controls label { display:flex; align-items:center; gap:5px; }
+.site-planner-controls input[type="number"] {
+    width:68px; max-width:75px; padding:4px;
+    color:#fff; border:1px solid #62717c; background:#22272b;
+}
+.site-planner-controls input[type="file"] {
+    max-width:160px; font-size:11px;
+}
+.site-planner-controls .site-confirm {
+    color:#d6eddf; cursor:pointer; min-width:170px;
+}
+.site-planner-status {
+    position:absolute; bottom:9px; left:10px; right:10px;
+    z-index:2; color:#fff; background:rgba(0,0,0,.83);
+    font-size:12px; padding:8px; pointer-events:none;
+}
+@media (max-width:1100px) {
+    .site-planner-controls { font-size:11px; gap:6px; }
+    .site-planner-controls input[type="file"] { max-width:130px; }
+}
