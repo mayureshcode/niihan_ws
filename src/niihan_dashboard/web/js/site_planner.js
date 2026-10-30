@@ -36,8 +36,9 @@ class SitePlanner {
         this.axisConversion.rotation.x=Math.PI/2; // glTF Y-up => ROS Z-up
         this.siteRoot.add(this.axisConversion);
         this.markers=new THREE.Group();this.scene.add(this.markers);
-        this.robotMarker=new THREE.Mesh(new THREE.ConeGeometry(.75,2,3),new THREE.MeshBasicMaterial({color:0x1faaff,depthTest:false}));
-        this.robotMarker.rotation.x=Math.PI/2;
+        const arrowShape=new THREE.Shape();
+        arrowShape.moveTo(1.6,0);arrowShape.lineTo(-.9,.65);arrowShape.lineTo(-.6,0);arrowShape.lineTo(-.9,-.65);arrowShape.closePath();
+        this.robotMarker=new THREE.Mesh(new THREE.ShapeGeometry(arrowShape),new THREE.MeshBasicMaterial({color:0x1faaff,depthTest:false,side:THREE.DoubleSide}));
         this.robotMarker.renderOrder=99;
         this.markers.add(this.robotMarker);
         this.raycaster=new THREE.Raycaster();
@@ -143,7 +144,7 @@ class SitePlanner {
             if(o.material)o.material.dispose();
         }
         this.robotMarker.position.set(this.robot.x,this.robot.y,1);
-        this.robotMarker.rotation.set(Math.PI/2,0,this.robot.yaw||0);
+        this.robotMarker.rotation.set(0,0,this.robot.yaw||0);
         const markerMaterial=new THREE.MeshBasicMaterial({color:0x49e699,depthTest:false});
         for(const wp of this.waypoints){
             if(![wp.x,wp.y].every(Number.isFinite))continue;
