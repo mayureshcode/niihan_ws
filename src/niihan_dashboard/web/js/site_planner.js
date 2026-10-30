@@ -13,6 +13,7 @@ class SitePlanner {
         this.robot={x:0,y:0,z:0};
         this.pickPoint=null;
         this.map=null;
+        this.drafts=[]; // Visual-only candidates; never drive to unknown cells.
         this.scene=new THREE.Scene();
         this.scene.background=new THREE.Color(0x1d2025);
         this.camera=new THREE.OrthographicCamera(-30,30,20,-20,0.1,10000);
@@ -41,6 +42,23 @@ class SitePlanner {
         this.robotMarker=new THREE.Mesh(new THREE.ShapeGeometry(arrowShape),new THREE.MeshBasicMaterial({color:0x1faaff,depthTest:false,side:THREE.DoubleSide}));
         this.robotMarker.renderOrder=99;
         this.markers.add(this.robotMarker);
+        const ring=new THREE.RingGeometry(1.9,2.25,36);
+        this.robotRing=new THREE.Mesh(ring,new THREE.MeshBasicMaterial({color:0x00e5ff,side:THREE.DoubleSide,depthTest:false,depthWrite:false}));
+        this.robotRing.renderOrder=100;
+        this.markers.add(this.robotRing);
+        const label=document.createElement('canvas');
+        label.width=256;label.height=64;
+        const pen=label.getContext('2d');
+        pen.fillStyle='rgba(0,12,22,.86)';pen.fillRect(0,0,256,64);
+        pen.fillStyle='#ffffff';pen.font='bold 36px sans-serif';pen.textAlign='center';
+        pen.fillText('ROBOT',128,44);
+        this.robotLabel=new THREE.Sprite(new THREE.SpriteMaterial({
+            map:new THREE.CanvasTexture(label),depthTest:false,depthWrite:false,transparent:true
+        }));
+        this.robotLabel.renderOrder=102;
+        this.markers.add(this.robotLabel);
+        this.wpMarkers=new THREE.Group();this.markers.add(this.wpMarkers);
+        this.draftMarkers=new THREE.Group();this.markers.add(this.draftMarkers);
         this.raycaster=new THREE.Raycaster();
         this.groundPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0);
         this.mouse=new THREE.Vector2();
@@ -59,6 +77,10 @@ class SitePlanner {
             this.describe();
         });
         document.getElementById('site-fit').addEventListener('click',()=>this.fit());
+        document.getElementById('site-center-robot').addEventListener('click',()=>this.centerRobot());
+        document.getElementById('site-zoom-in').addEventListener('click',()=>this.zoom(1.5));
+        document.getElementById('site-zoom-out').addEventListener('click',()=>this.zoom(1/1.5));
+        document.getElementById('site-send-drafts').addEventListener('click',()=>this.sendValidDrafts());
         const canvas=this.renderer.domElement;
         let down=null,dragged=false;
         canvas.addEventListener('pointerdown',e=>{
@@ -75,7 +97,7 @@ class SitePlanner {
         canvas.addEventListener('pointercancel',()=>{down=null;});
         window.addEventListener('resize',()=>this.resize());
         this.resize();
-        this.animate=()=>{requestAnimationFrame(this.animate);this.controls.update();this.renderer.render(this.scene,this.camera);};
+        this.animate=()=>{requestAnimationFrame(this.animate);this.controls.update();this.updateMarkerSize();this.renderer.render(this.scene,this.camera);};
         this.animate();
         this.describe();
     }
@@ -83,7 +105,7 @@ class SitePlanner {
     describe() {
         if(!this.ready)this.setStatus('Select your seaport .glb file to preview it. No upload is performed.');
         else if(!this.confirmed)this.setStatus('PREVIEW ONLY — align GLB with ROS coordinates, then confirm before adding waypoints.');
-        else this.setStatus('Aligned visual planner: click open ground to propose a waypoint. Nav2 remains the navigation authority.');
+        else this.setStatus('Click a known free lane to add a waypoint. Unknown areas become visual drafts (not sent). Drafts: '+this.drafts.length+'.');
     }
     load(file) {
         this.confirm.checked=false;this.confirmed=false;this.ready=false;
