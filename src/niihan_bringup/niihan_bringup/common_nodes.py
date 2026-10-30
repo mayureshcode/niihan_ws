@@ -173,11 +173,13 @@ class MotionGateway(Node):
         self.max_linear=parameter(self,'max_linear_speed',0.3)
         self.max_angular=parameter(self,'max_angular_speed',0.6)
         self.pub=self.create_publisher(Twist,'/niihan/drive/cmd_vel',10)
+        self.status_pub=self.create_publisher(String,'/niihan/motion_gateway/status',10)
         self.add_on_set_parameters_callback(self._on_parameters)
         self.create_subscription(Twist,'/niihan/cmd_vel',self.command,10)
         self.create_subscription(Bool,'/niihan/motion_permitted',self.permission,10)
         self.create_subscription(Bool,'/niihan/e_stop',self.estop,LATCHED)
         self.create_timer(0.02,self.tick,clock=self.steady)
+        self.create_timer(0.2,self.publish_status,clock=self.steady)
 
     def _on_parameters(self,params):
         # A successful parameter update must agree with the real DriveState.
@@ -194,6 +196,21 @@ class MotionGateway(Node):
             self.state.received=-math.inf
             self.pub.publish(Twist())
         return SetParametersResult(successful=True)
+
+    def publish_status(self):
+        now=time.monotonic()
+        permission_age=now-self.permission_time
+        command_age=now-self.state.received
+        reason=self.state.inhibition_reason(now)
+        if reason=='permission_denied' and permission_age>0.3:
+            reason='permission_timeout'
+        self.status_pub.publish(String(data=json.dumps({
+            'enabled':self.state.enabled,'estop':self.state.estop,
+            'permitted':self.state.permitted,
+            'permission_fresh':0<=permission_age<=0.3,
+            'permission_age_s':round(permission_age,3) if math.isfinite(permission_age) else None,
+            'command_age_s':round(command_age,3) if math.isfinite(command_age) else None,
+            'inhibition_reason':reason,'motion_allowed':reason is None})))
 
     def command(self,msg):
         self.state.receive(msg.linear.x,msg.angular.z,time.monotonic())
