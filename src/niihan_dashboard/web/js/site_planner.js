@@ -132,7 +132,7 @@ class SitePlanner {
     setMap(map){this.map=map;}
     setRobot(pose){
         if(!pose||![pose.x,pose.y].every(Number.isFinite))return;
-        this.robot={x:pose.x,y:pose.y,z:pose.z||0};
+        this.robot={x:pose.x,y:pose.y,z:pose.z||0,yaw:pose.yaw||0};
         this.drawMarkers();
     }
     setWaypoints(points){this.waypoints=points||[];this.drawMarkers();}
@@ -143,7 +143,7 @@ class SitePlanner {
             if(o.material)o.material.dispose();
         }
         this.robotMarker.position.set(this.robot.x,this.robot.y,1);
-        this.robotMarker.rotation.set(Math.PI/2,0,-(this.robot.yaw||0));
+        this.robotMarker.rotation.set(Math.PI/2,0,this.robot.yaw||0);
         const markerMaterial=new THREE.MeshBasicMaterial({color:0x49e699,depthTest:false});
         for(const wp of this.waypoints){
             if(![wp.x,wp.y].every(Number.isFinite))continue;
