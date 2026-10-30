@@ -50,6 +50,8 @@ class CommandArbiter(Node):
         self.cmds = {3: None, 2: None, 1: None}
         self.cmd_times = {3: None, 2: None, 1: None}
         if self.estop_active:
+            self.active_source = None
+            self.active_age_s = None
             self.cmd_pub.publish(Twist()) # synchronous zero
 
     def cmd_cb(self, msg, priority):
@@ -65,6 +67,8 @@ class CommandArbiter(Node):
         self.evaluate_commands()
 
     def evaluate_commands(self):
+        self.active_source = None
+        self.active_age_s = None
         if self.estop_active:
             self.cmd_pub.publish(Twist())
             return
@@ -74,6 +78,8 @@ class CommandArbiter(Node):
             if self.cmds[p] is not None:
                 dt = (now - self.cmd_times[p]).nanoseconds / 1e9
                 if 0 <= dt <= self.watchdog_timeout:
+                    self.active_source = {3:'manual',2:'recovery',1:'nav'}[p]
+                    self.active_age_s = round(dt,3)
                     self.cmd_pub.publish(self.cmds[p])
                     return
 
