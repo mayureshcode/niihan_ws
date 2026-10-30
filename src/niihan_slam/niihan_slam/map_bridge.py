@@ -23,7 +23,7 @@ class MapBridge(Node):
         self.mapping=param('mapping',True);self.ground=param('ground_z',-.145)
         self.environment=param('environment_id','');self.loaded_file=param('map_file','');self.last_saved=None;self.save_error=None
         self.ground_initialized=False
-        self.grid=Grid(param('resolution',.1));self.points={};self.last=None;self.received=0.;self.gyro=0.;self.cloud_stamp=None
+        self.grid=Grid(param('resolution',.1),int(param('map_size_cells',600)));self.points={};self.last=None;self.received=0.;self.gyro=0.;self.cloud_stamp=None
         self.tf=Buffer(node=self);self.listener=TransformListener(self.tf,self)
         latched=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.map_pub=self.create_publisher(OccupancyGrid,'/map',latched)
