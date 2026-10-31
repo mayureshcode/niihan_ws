@@ -75,7 +75,16 @@ def stack(context):
         node('niihan_description','command_arbiter','command_arbiter'),
         node('niihan_bringup','gazebo_drive','gazebo_drive',[{'relay_gnss':LaunchConfiguration('gnss_source').perform(context)=='gazebo'}]),
         node('niihan_bringup','rtk_alignment','rtk_alignment',[{'alignment_file':alignment,'environment_id':environment,'allow_simulated_rtk':LaunchConfiguration('allow_simulated_rtk').perform(context)=='true'}]),
-        node('niihan_bringup','sensor_adapter','sensor_adapter',[{'gravity_aligned_height':True,'scan_frame':'base_nav','relay_camera':False}]),
+        # In external_stack mode the Gazebo bridge remaps its LiDAR output
+        # /niihan/sensors/lidar/points -> /niihan/legacy/lidar/points.
+        # The common adapter MUST subscribe to that legacy/raw stream, then
+        # publish the filtered cloud and /scan for health + Nav2.
+        node('niihan_bringup','sensor_adapter','sensor_adapter',[{
+            'cloud_topic':'/niihan/legacy/lidar/points',
+            'gravity_aligned_height':True,
+            'scan_frame':'base_nav',
+            'relay_camera':False
+        }]),
         node('niihan_bringup','health_supervisor','health_supervisor',[{'sensor_timeout':2.0}]),
         node('niihan_bringup','motion_gateway','motion_gateway',[{'drive_enabled':LaunchConfiguration('drive_enabled').perform(context).lower()=='true'}]),
         include(os.path.join(desc,'launch','niihan_navigation.launch.py'),{'use_sim_time':'true','params_file':os.path.join(share,'config','nav2_3d_jazzy.yaml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'nav2_3d.yaml'),'bt_xml':os.path.join(share,'config','navigate_to_pose_position_jazzy.xml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'navigate_to_pose_position.xml')}),
