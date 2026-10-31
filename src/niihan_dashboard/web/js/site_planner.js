@@ -14,6 +14,7 @@ class SitePlanner {
         this.pickPoint=null;
         this.map=null;
         this.drafts=[]; // Visual-only candidates; never drive to unknown cells.
+        this.anchorRobotPending=false;
         this.scene=new THREE.Scene();
         this.scene.background=new THREE.Color(0x1d2025);
         this.camera=new THREE.OrthographicCamera(-30,30,20,-20,0.1,10000);
@@ -78,6 +79,11 @@ class SitePlanner {
         });
         document.getElementById('site-fit').addEventListener('click',()=>this.fit());
         document.getElementById('site-center-robot').addEventListener('click',()=>this.centerRobot());
+        document.getElementById('site-anchor-robot').addEventListener('click',()=>{
+            if(!this.ready){this.setStatus('Load the seaport GLB before aligning its robot.');return;}
+            this.anchorRobotPending=true;
+            this.setStatus('ALIGNMENT MODE: click the actual robot model visible in the GLB. This estimates XY translation only; verify another landmark and yaw/scale before confirming.');
+        });
         document.getElementById('site-zoom-in').addEventListener('click',()=>this.zoom(1.5));
         document.getElementById('site-zoom-out').addEventListener('click',()=>this.zoom(1/1.5));
         document.getElementById('site-send-drafts').addEventListener('click',()=>this.sendValidDrafts());
@@ -248,8 +254,10 @@ class SitePlanner {
         return {ok:true};
     }
     pick(e) {
-        if(!this.ready||!this.confirmed){
-            this.describe();return;
+        if(!this.ready) {this.describe();return;}
+        if(!this.confirmed&&!this.anchorRobotPending) {
+            this.setStatus('WAYPOINTS LOCKED: first verify GLB-to-ROS alignment and tick its checkbox. Use ALIGN ROBOT POSITION to estimate translation.');
+            return;
         }
         const rect=this.renderer.domElement.getBoundingClientRect();
         this.mouse.set(((e.clientX-rect.left)/rect.width)*2-1,
@@ -257,6 +265,18 @@ class SitePlanner {
         this.raycaster.setFromCamera(this.mouse,this.camera);
         const p=new THREE.Vector3();
         if(!this.raycaster.ray.intersectPlane(this.groundPlane,p))return;
+        if(this.anchorRobotPending) {
+            this.anchorRobotPending=false;
+            const ox=document.getElementById('site-offset-x');
+            const oy=document.getElementById('site-offset-y');
+            // Click is expressed in the already-transformed ROS-aligned plane.
+            // Translate GLB so selected visual robot lands on live ROS map pose.
+            ox.value=(Number(ox.value)+this.robot.x-p.x).toFixed(3);
+            oy.value=(Number(oy.value)+this.robot.y-p.y).toFixed(3);
+            this.applyAlignment(); // also revokes previous confirmation
+            this.setStatus('Robot anchor translated GLB to ROS X/Y. VERIFY a second fixed landmark, yaw and scale; only then confirm alignment.');
+            return;
+        }
         const test=this.targetIsKnownFree(p.x,p.y);
         if(test.ok) {
             const sent=this.callback(p.x,p.y);
