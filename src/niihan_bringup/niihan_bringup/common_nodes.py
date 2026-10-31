@@ -52,6 +52,19 @@ class SensorAdapter(Node):
         self.listener = TransformListener(self.tf, self)
         self.cloud_pub = self.create_publisher(PointCloud2, '/niihan/sensors/lidar/points', qos_profile_sensor_data)
         self.scan_pub = self.create_publisher(LaserScan, '/scan', qos_profile_sensor_data)
+        # Diagnose missing scan without manufacturing a scan or relaxing the
+        # independent motion interlock. Uses steady time for slow/paused Gazebo.
+        self.adapter_started = time.monotonic()
+        self.adapter_last_cloud = None
+        self.adapter_last_scan = None
+        self.adapter_received = 0
+        self.adapter_published = 0
+        self.adapter_transform_failures = 0
+        self.adapter_invalid_clouds = 0
+        self.adapter_last_error = ''
+        self.adapter_status = self.create_publisher(String, '/niihan/sensor_adapter/status', 10)
+        self.adapter_steady = Clock(clock_type=ClockType.STEADY_TIME)
+        self.create_timer(1.0, self.publish_adapter_status, clock=self.adapter_steady)
         self.create_subscription(PointCloud2, cloud, self.cloud, qos_profile_sensor_data)
         # Gazebo already bridges the sole forward camera onto the dashboard topic.
         if parameter(self, 'relay_camera', True):
@@ -59,12 +72,16 @@ class SensorAdapter(Node):
             self.create_subscription(Image, parameter(self, 'camera_topic', '/niihan/raw/camera/image_raw'), self.camera_pub.publish, qos_profile_sensor_data)
 
     def cloud(self, msg):
+        self.adapter_received += 1
+        self.adapter_last_cloud = time.monotonic()
         try:
             tf = self.tf.lookup_transform('base_footprint', msg.header.frame_id, rclpy.time.Time.from_msg(msg.header.stamp))
             p = xyz_array(msg)
             q = tf.transform.rotation
             norm = math.sqrt(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w)
             if norm < 1e-9:
+                self.adapter_invalid_clouds += 1
+                self.adapter_last_error = 'invalid lidar transform quaternion'
                 return
             x,y,z,w = q.x/norm,q.y/norm,q.z/norm,q.w/norm
             rotation = np.array([[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],
@@ -76,7 +93,9 @@ class SensorAdapter(Node):
                 level=self.tf.lookup_transform("odom", "base_footprint", rclpy.time.Time()).transform.rotation
                 from .contracts import level_points
                 transformed=level_points(transformed, [level.x,level.y,level.z,level.w])
-        except (TransformException, ValueError):
+        except (TransformException, ValueError) as exc:
+            self.adapter_transform_failures += 1
+            self.adapter_last_error = f'{type(exc).__name__}: {str(exc)[:160]}'
             return
         self.cloud_pub.publish(msg)
         scan = LaserScan()
@@ -89,6 +108,28 @@ class SensorAdapter(Node):
         scan.range_min,scan.range_max = 0.3,25.0
         scan.ranges = project_scan(transformed, low=self.low, high=self.high)
         self.scan_pub.publish(scan)
+        self.adapter_published += 1
+        self.adapter_last_scan = time.monotonic()
+        self.adapter_last_error = ''
+
+    def publish_adapter_status(self):
+        now = time.monotonic()
+        status = {
+            'source_topic': self.get_parameter('cloud_topic').value,
+            'output_scan_topic': '/scan',
+            'output_cloud_topic': '/niihan/sensors/lidar/points',
+            'received_clouds': self.adapter_received,
+            'published_scans': self.adapter_published,
+            'tf_failures': self.adapter_transform_failures,
+            'invalid_clouds': self.adapter_invalid_clouds,
+            'last_cloud_age_s': (round(now - self.adapter_last_cloud, 3)
+                                 if self.adapter_last_cloud is not None else None),
+            'last_scan_age_s': (round(now - self.adapter_last_scan, 3)
+                                if self.adapter_last_scan is not None else None),
+            'uptime_s': round(now - self.adapter_started, 3),
+            'last_error': self.adapter_last_error,
+        }
+        self.adapter_status.publish(String(data=json.dumps(status)))
 
 
 class HealthSupervisor(Node):

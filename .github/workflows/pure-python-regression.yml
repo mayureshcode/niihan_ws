@@ -2,7 +2,7 @@ name: Pure Python regression
 
 on:
   pull_request:
-    branches: [feat/l2-3d-slam-release]
+    branches: [feat/l2-3d-slam-release, fix/simulation-startup-isolation]
   workflow_dispatch:
 
 jobs:
@@ -33,4 +33,5 @@ jobs:
           python -m pytest -q \
             src/niihan_bringup/test/test_contracts.py \
             src/niihan_bringup/test/test_drive_inhibition_diagnostics.py \
-            src/niihan_slam/test/test_grid.py
+            src/niihan_slam/test/test_grid.py \
+            src/niihan_slam/test/test_sensor_wiring.py
