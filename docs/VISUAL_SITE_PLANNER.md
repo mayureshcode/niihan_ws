@@ -74,3 +74,30 @@ The new worktree does not modify the dirty working directory or
 include uncommitted seaport assets. Use the local GLB file input in
 the browser; do not copy proprietary models into the Git repository
 merely to preview them.
+
+
+## Fast client/AI-ML handoff (camera + site screen recordings)
+
+If the rover is motion-inhibited, it is still possible to record a static or stationary
+camera feed and an overview of the Gazebo seaport. Do not override health gates.
+
+1. Source ROS 2 Jazzy and the workspace, set `ROS_DOMAIN_ID=188`.
+2. Confirm `ros2 topic info /niihan/sensors/panoramic/front/image_raw` shows
+   a publisher and `ros2 topic hz /niihan/sensors/panoramic/front/image_raw`
+   receives images. If there is no publisher, first fix the camera bridge.
+3. Run `python3 tools/record_site_camera.py --duration 120 --fps 10
+   --output ~/surveillance_project/recordings/site_camera.mp4`. This records
+   a nominal 10-fps MP4 plus periodic JPEG frames in `recordings/frames`.
+   Note that a slower incoming camera frequency will create fewer recorded
+   frames; do not claim real-time 10-fps acquisition if the simulator runs slowly.
+4. For a whole-site view, capture Gazebo's window with FFmpeg or your usual
+   desktop recorder. Site video and robot camera video are separate deliverables.
+5. The new **ALIGN ROBOT POSITION** button estimates GLB XY translation:
+   load GLB, click the button, then click the actual robot model on the visual
+   GLB. It uses live ROS map pose to shift the GLB, **not** a verified mapping.
+   Validate at least one additional separated fixed landmark plus orientation
+   and scale before ticking alignment confirmation and submitting waypoints.
+
+**Do not** manufacture navigability from the visual GLB: unknown 2D map cells
+remain visual-only drafts. Navigation requires healthy odometry, LiDAR, /scan
+and verified transforms.
