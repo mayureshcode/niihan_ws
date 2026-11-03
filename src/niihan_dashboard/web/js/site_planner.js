@@ -13,7 +13,8 @@ class SitePlanner {
         this.robot={x:0,y:0,z:0};
         this.pickPoint=null;
         this.map=null;
-        this.drafts=[]; // Visual-only candidates; never drive to unknown cells.
+        this.drafts=[]; // Aligned visual drafts; only sent after free-space validation.
+        this.previewPins=[]; // Unaligned visual annotations: NEVER eligible for navigation.
         this.anchorRobotPending=false;
         this.scene=new THREE.Scene();
         this.scene.background=new THREE.Color(0x1d2025);
@@ -60,6 +61,7 @@ class SitePlanner {
         this.markers.add(this.robotLabel);
         this.wpMarkers=new THREE.Group();this.markers.add(this.wpMarkers);
         this.draftMarkers=new THREE.Group();this.markers.add(this.draftMarkers);
+        this.previewMarkers=new THREE.Group();this.markers.add(this.previewMarkers);
         this.raycaster=new THREE.Raycaster();
         this.groundPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0);
         this.mouse=new THREE.Vector2();
@@ -75,7 +77,10 @@ class SitePlanner {
         }
         this.confirm.addEventListener('change',()=>{
             this.confirmed=this.confirm.checked&&this.ready;
+            const discarded=this.confirmed&&this.previewPins.length>0;
+            if(discarded){this.previewPins=[];this.drawMarkers();}
             this.describe();
+            if(discarded)this.setStatus('Alignment confirmed. Unaligned preview pins were discarded for safety; click the site again to add validated waypoints.');
         });
         document.getElementById('site-fit').addEventListener('click',()=>this.fit());
         document.getElementById('site-center-robot').addEventListener('click',()=>this.centerRobot());
@@ -87,6 +92,7 @@ class SitePlanner {
         document.getElementById('site-zoom-in').addEventListener('click',()=>this.zoom(1.5));
         document.getElementById('site-zoom-out').addEventListener('click',()=>this.zoom(1/1.5));
         document.getElementById('site-send-drafts').addEventListener('click',()=>this.sendValidDrafts());
+        document.getElementById('site-clear-pins').addEventListener('click',()=>this.clearVisualPins());
         const canvas=this.renderer.domElement;
         let down=null,dragged=false;
         canvas.addEventListener('pointerdown',e=>{
@@ -110,11 +116,12 @@ class SitePlanner {
     setStatus(message) {this.status.textContent=message;}
     describe() {
         if(!this.ready)this.setStatus('Select your seaport .glb file to preview it. No upload is performed.');
-        else if(!this.confirmed)this.setStatus('PREVIEW ONLY — align GLB with ROS coordinates, then confirm before adding waypoints.');
+        else if(!this.confirmed)this.setStatus('PREVIEW ONLY — click to sketch orange visual pins (not navigation waypoints). Verify GLB-to-ROS alignment and confirm before submitting any real waypoints.');
         else this.setStatus('Click a known free lane to add a waypoint. Unknown areas become visual drafts (not sent). Drafts: '+this.drafts.length+'.');
     }
     load(file) {
         this.confirm.checked=false;this.confirmed=false;this.ready=false;
+        this.drafts=[];this.previewPins=[];this.drawMarkers(); // Old points cannot belong to a new model.
         if(!/\.glb$/i.test(file.name)){
             this.setStatus('Only self-contained .glb files are supported.');return;
         }
@@ -156,6 +163,10 @@ class SitePlanner {
         this.siteRoot.rotation.z=values[2]*Math.PI/180;
         this.siteRoot.scale.setScalar(values[3]);
         this.confirm.checked=false;this.confirmed=false;
+        // Moving the model invalidates every unsubmitted coordinate from its old alignment.
+        if(this.drafts.length||this.previewPins.length){
+            this.drafts=[];this.previewPins=[];this.drawMarkers();
+        }
         this.describe();
     }
     setMap(map){this.map=map;}
@@ -180,6 +191,13 @@ class SitePlanner {
     drawMarkers(){
         this.clearChildren(this.wpMarkers);
         this.clearChildren(this.draftMarkers);
+        this.clearChildren(this.previewMarkers);
+        for(const pin of this.previewPins){
+            const circle=new THREE.Mesh(new THREE.RingGeometry(.7,1.1,24),
+                new THREE.MeshBasicMaterial({color:0xff754a,depthTest:false,side:THREE.DoubleSide}));
+            circle.position.set(pin.x,pin.y,24);circle.renderOrder=105;
+            this.previewMarkers.add(circle);
+        }
         const material=()=>new THREE.MeshBasicMaterial({color:0x0f8f54,depthTest:false,depthWrite:false});
         for(const wp of this.waypoints){
             if(![wp.x,wp.y].every(Number.isFinite))continue;
@@ -201,8 +219,13 @@ class SitePlanner {
         this.robotRing.scale.setScalar(9*pixelSize);
         this.robotLabel.scale.set(75*pixelSize,22*pixelSize,1);
         this.robotLabel.position.set(this.robot.x,this.robot.y+22*pixelSize,21);
-        for(const g of [this.wpMarkers,this.draftMarkers])
+        for(const g of [this.wpMarkers,this.draftMarkers,this.previewMarkers])
             for(const m of g.children)m.scale.setScalar(8*pixelSize);
+    }
+    clearVisualPins() {
+        const total=this.previewPins.length+this.drafts.length;
+        this.previewPins=[];this.drafts=[];this.drawMarkers();
+        this.setStatus(total+' unsent visual pin(s) cleared. Saved mission waypoints were NOT changed.');
     }
     zoom(factor) {
         this.camera.zoom=Math.max(.1,Math.min(100,this.camera.zoom*factor));
@@ -235,6 +258,7 @@ class SitePlanner {
     // Convert world coordinates into the current ROS occupancy grid. A known,
     // free target is required; the GLB visual geometry alone is not a safety map.
     targetIsKnownFree(x,y) {
+        if(![x,y].every(Number.isFinite))return {ok:false,reason:'Invalid waypoint coordinates.'};
         const m=this.map;
         if(!m||!m.origin||!Array.isArray(m.data)||!m.resolution||!m.width||!m.height)
             return {ok:false,reason:'2D navigation map unavailable; cannot validate this waypoint.'};
@@ -255,10 +279,6 @@ class SitePlanner {
     }
     pick(e) {
         if(!this.ready) {this.describe();return;}
-        if(!this.confirmed&&!this.anchorRobotPending) {
-            this.setStatus('WAYPOINTS LOCKED: first verify GLB-to-ROS alignment and tick its checkbox. Use ALIGN ROBOT POSITION to estimate translation.');
-            return;
-        }
         const rect=this.renderer.domElement.getBoundingClientRect();
         this.mouse.set(((e.clientX-rect.left)/rect.width)*2-1,
                        -((e.clientY-rect.top)/rect.height)*2+1);
@@ -275,6 +295,14 @@ class SitePlanner {
             oy.value=(Number(oy.value)+this.robot.y-p.y).toFixed(3);
             this.applyAlignment(); // also revokes previous confirmation
             this.setStatus('Robot anchor translated GLB to ROS X/Y. VERIFY a second fixed landmark, yaw and scale; only then confirm alignment.');
+            return;
+        }
+        if(!this.confirmed) {
+            if(this.previewPins.length>=50){
+                this.setStatus('Maximum 50 preview pins reached. Clear pins or finish alignment.');return;
+            }
+            this.previewPins.push({x:p.x,y:p.y});this.drawMarkers();
+            this.setStatus('PREVIEW PIN '+this.previewPins.length+' (NOT SENT). Verify alignment first; preview pins are discarded on alignment changes or confirmation.');
             return;
         }
         const test=this.targetIsKnownFree(p.x,p.y);
@@ -324,3 +352,5 @@ class SitePlanner {
         this.renderer.setSize(w,h);
     }
 }
+// Node-only export for regression tests; no impact on browser globals.
+if (typeof module !== 'undefined' && module.exports) module.exports = SitePlanner;
