@@ -372,7 +372,7 @@ class ROSBridgeNode(Node):
 
     def image_callback(self, msg):
         try:
-            cv_image = cv2.rotate(self.cv_bridge.imgmsg_to_cv2(msg, 'bgr8'), cv2.ROTATE_180)
+            cv_image = self.cv_bridge.imgmsg_to_cv2(msg, 'bgr8')
             result, encoded = cv2.imencode('.jpg', cv_image, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
             if result:
                 with self._state_lock:
