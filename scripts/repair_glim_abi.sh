@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild a matching CPU GLIM/GTSAM stack in THIS worktree only.
 # No modification of /usr/local, system packages, or another NIIHAN workspace.
-set -Eeuo pipefail
+set -Eeo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ $EUID -ne 0 ]] || { echo "Run as your normal user, not sudo." >&2; exit 2; }
 [[ -f /opt/ros/jazzy/setup.bash ]] || { echo "ROS 2 Jazzy is required." >&2; exit 2; }
