@@ -95,10 +95,12 @@ if grep -q 'cv2.ROTATE_180' "$root/src/niihan_dashboard/niihan_dashboard/ros_bri
 fi
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q -p no:cacheprovider \
   "$root/src/niihan_slam/test/test_nav2_launch_profile.py" \
-  "$root/src/niihan_slam/test/test_unified_seaport_launch.py"
+  "$root/src/niihan_slam/test/test_unified_seaport_launch.py" \
+  "$root/src/niihan_slam/test/test_nav2_collision_monitor.py"
 python3 -m py_compile \
   "$root/src/niihan_slam/launch/slam_simulation.launch.py" \
-  "$root/src/niihan_description/launch/niihan_navigation.launch.py"
+  "$root/src/niihan_description/launch/niihan_navigation.launch.py" \
+  "$root/src/niihan_description/launch/nav2_seaport_core.launch.py"
 coords="$(python3 - "$spawn_json" <<'PY'
 import json, math, sys
 from pathlib import Path
@@ -111,7 +113,7 @@ read -r spawn_x spawn_y spawn_z <<<"$coords"
 echo "World: $world"
 echo "Validated robot spawn: $spawn_x, $spawn_y, $spawn_z"
 echo "Camera: no backend 180-degree rotation"
-echo "Nav2 profile: stock Jazzy; startup deferred 15 seconds for GLIM bootstrap."
+echo "Nav2: configured /scan collision monitor; route/docking removed from mission startup."\necho "Nav2 profile: stock Jazzy; startup deferred 15 seconds for GLIM bootstrap."
 echo "Dashboard: http://localhost:8080"
 echo "================================================"
 
