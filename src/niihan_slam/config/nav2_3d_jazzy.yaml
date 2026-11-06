@@ -139,6 +139,23 @@ controller_server:
     progress_checker_plugins:
     - progress_checker
     enable_stamped_cmd_vel: false
+# Jazzy's stock navigation_launch.py always manages docking_server.
+# This rover has no deployed dock; configure the required plugin with an empty
+# dock database so docking does not block normal Nav2 waypoint navigation.
+# No physical dock is defined or advertised by this profile.
+docking_server:
+  ros__parameters:
+    use_sim_time: true
+    base_frame: base_nav
+    fixed_frame: odom
+    odom_topic: /odom
+    dock_plugins:
+      - no_site_dock
+    no_site_dock:
+      plugin: opennav_docking::SimpleNonChargingDock
+      use_external_detection_pose: false
+    docks: []
+
 global_costmap:
   global_costmap:
     ros__parameters:
