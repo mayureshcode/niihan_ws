@@ -133,7 +133,7 @@ class ROSBridgeNode(Node):
         self.create_subscription(Image, '/niihan/sensors/panoramic/front/image_raw', self.image_callback, qos_profile_sensor_data)
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         self._nav2_lifecycle = {name:{'client':self.create_client(GetState,'/'+name+'/get_state'), 'active':False, 'received':0., 'requested':0., 'future':None}
-                                for name in ('controller_server','planner_server','bt_navigator','behavior_server','velocity_smoother')}
+                                for name in ('controller_server','planner_server','bt_navigator','behavior_server','velocity_smoother','collision_monitor')}
         # A paused /clock must not freeze the manual watchdog or localization stop.
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_timer(0.05, self.safety_loop, clock=self._steady_clock)
