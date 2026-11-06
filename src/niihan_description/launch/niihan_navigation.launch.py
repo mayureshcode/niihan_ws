@@ -1,31 +1,32 @@
-"""Native Nav2 bringup with selectable stock or project behavior trees.
+"""Seaport Nav2 wrapper: select validated BT XML and launch the core stack.
 
-Use stock Nav2 trees to isolate Jazzy lifecycle failures before testing the
-project's position-arrival / replanning tree. This never bypasses safety gates.
+Native Jazzy nav2_bringup/navigation_launch.py also manages routing and
+docking, which this patrol application does not configure. Only the required
+Nav2 nodes are managed by nav2_seaport_core.launch.py; collision monitoring
+remains mandatory and commands retain NIIHAN motion gateway safety controls.
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
-    LogInfo, OpaqueFunction,
+    DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import SetRemap
 from nav2_common.launch import RewrittenYaml
 
 
 def _navigation_actions(context):
-    package_dir = get_package_share_directory('niihan_description')
+    description = get_package_share_directory('niihan_description')
     profile = LaunchConfiguration('bt_profile').perform(context).strip().lower()
     if profile not in ('stock', 'custom'):
-        raise ValueError('bt_profile must be "stock" or "custom"; got ' + repr(profile))
+        raise ValueError('bt_profile must be "stock" or "custom"')
+    stack = LaunchConfiguration('nav2_stack_profile').perform(context).strip().lower()
+    if stack != 'core':
+        raise ValueError('Only nav2_stack_profile=core is supported for the seaport')
 
     if profile == 'stock':
-        # Absolute package paths, rather than empty parameters, avoid ambiguity
-        # over whether a predeclared empty default selects a stock tree.
         bt_dir = os.path.join(
             get_package_share_directory('nav2_bt_navigator'), 'behavior_trees')
         navigate_to_pose = os.path.join(
@@ -35,7 +36,7 @@ def _navigation_actions(context):
     else:
         navigate_to_pose = LaunchConfiguration('bt_xml').perform(context)
         navigate_through_poses = os.path.join(
-            package_dir, 'config',
+            description, 'config',
             'navigate_through_poses_jazzy.xml' if os.environ.get('ROS_DISTRO') == 'jazzy'
             else 'navigate_through_poses.xml')
 
@@ -53,28 +54,21 @@ def _navigation_actions(context):
         },
         convert_types=True,
     )
+    core_launch = os.path.join(description, 'launch', 'nav2_seaport_core.launch.py')
+    if not os.path.isfile(core_launch):
+        raise FileNotFoundError('Seaport Nav2 core launch is missing: ' + core_launch)
+
     return [
-        LogInfo(msg='Nav2 BT profile: ' + profile +
-                '; pose=' + navigate_to_pose),
-        GroupAction(actions=[
-            # Preserve the original command ownership; arbiter and motion
-            # gateway retain health, e-stop and watchdog enforcement.
-            SetRemap(src='velocity_smoother:cmd_vel_smoothed',
-                     dst='/niihan/cmd_vel/nav'),
-            SetRemap(src='behavior_server:cmd_vel',
-                     dst='/niihan/cmd_vel/nav'),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(os.path.join(
-                    get_package_share_directory('nav2_bringup'),
-                    'launch', 'navigation_launch.py')),
-                launch_arguments={
-                    'use_sim_time': LaunchConfiguration('use_sim_time'),
-                    'params_file': params_file,
-                    'autostart': LaunchConfiguration('autostart'),
-                    'use_composition': 'False',
-                }.items(),
-            ),
-        ]),
+        LogInfo(msg='Seaport Nav2 core lifecycle; BT profile: ' + profile +
+                '; NavigateToPose: ' + navigate_to_pose),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(core_launch),
+            launch_arguments={
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'params_file': params_file,
+                'autostart': LaunchConfiguration('autostart'),
+            }.items(),
+        ),
     ]
 
 
@@ -82,14 +76,13 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('params_file', default_value=os.path.join(
-            get_package_share_directory('niihan_description'), 'config',
-            'nav2_params.yaml')),
+            get_package_share_directory('niihan_description'),
+            'config', 'nav2_params.yaml')),
         DeclareLaunchArgument('bt_xml', default_value=os.path.join(
-            get_package_share_directory('niihan_description'), 'config',
-            'navigate_to_pose.xml')),
-        DeclareLaunchArgument('bt_profile', default_value='custom',
-                              description='stock: standard Nav2 BT; '
-                              'custom: project BT XML'),
+            get_package_share_directory('niihan_description'),
+            'config', 'navigate_to_pose.xml')),
+        DeclareLaunchArgument('bt_profile', default_value='custom'),
+        DeclareLaunchArgument('nav2_stack_profile', default_value='core'),
         DeclareLaunchArgument('autostart', default_value='true'),
         OpaqueFunction(function=_navigation_actions),
     ])

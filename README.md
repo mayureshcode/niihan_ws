@@ -36,6 +36,10 @@ If GLIM exits with `libgtsam_points.so.1: not found`, `libgtsam.so.4: not found`
 
 If GLIM publishes odometry and the health supervisor reports ready but `bt_navigator` is `unconfigured` or other Nav2 lifecycle servers are `inactive`, see [Nav2 Jazzy recovery](docs/NAV2_JAZZY_RECOVERY.md). This branch defaults the Jazzy launch to `nav2_bt_profile:=stock` (Nav2's installed behavior trees); `nav2_bt_profile:=custom` restores the original position-arrival trees for comparison. The read-only `scripts/nav2_lifecycle_report.py` shows the lifecycle state of each server. This is a diagnostic startup profile, **not a claim of successful autonomous navigation or collision safety**.
 
+## One-command seaport repair (Jazzy, November 2026)
+
+If the rover has an inverted camera, incorrect robot spawn height, or an unavailable Nav2 badge, **do not stack old ROS worktree overlays by hand**. Use the [unified seaport startup](docs/ONE_COMMAND_SEAPORT.md): check out `fix/unified-seaport-startup-20261106` as `niihan_unified` and run `bash scripts/start_seaport.sh`. It reuses the repaired GLIM binary, builds the three affected ROS Python packages together, validates camera and spawn contracts, starts Gazebo/dashboard/Nav2 with controlled Jazzy lifecycle sequencing, and prints a read-only readiness report. The Nav2 recovery still requires real simulation acceptance; the command never bypasses motion safety.
+
 ## Quick setup and visible launch
 
 On Ubuntu 22.04 or 24.04 amd64 with a graphical desktop:
