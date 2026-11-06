@@ -26,24 +26,17 @@ This recovery adds a reversible startup profile that uses Nav2 Jazzy's **install
 
 ## Build only the changed ROS Python packages
 
-Use a fresh shell; keep `niihan_ws`, `niihan_waypoint_review` and the already-compiled `niihan_glim_repair` worktrees.
+Use a fresh shell. Keep the original `niihan_ws`, the waypoint review, and your successfully compiled `niihan_glim_repair` workspace intact.
 
 ```bash
 cd ~/surveillance_project/niihan_ws
-git fetch https://github.com/mayureshcode/niihan_ws.git   refs/heads/fix/nav2-jazzy-lifecycle-recovery-20261106
+git fetch https://github.com/mayureshcode/niihan_ws.git refs/heads/fix/nav2-jazzy-lifecycle-recovery-20261106
 git worktree add --detach ../niihan_nav2_recovery FETCH_HEAD
 cd ~/surveillance_project/niihan_nav2_recovery
-
-source /opt/ros/jazzy/setup.bash
-source ~/surveillance_project/niihan_ws/install/local_setup.bash
-source ~/surveillance_project/niihan_waypoint_review/install/local_setup.bash
-source ~/surveillance_project/niihan_glim_repair/install/local_setup.bash
-source ~/surveillance_project/niihan_glim_repair/scripts/environment.sh
-
-colcon build --symlink-install   --base-paths src/niihan_description src/niihan_slam   --packages-select niihan_description niihan_slam
+bash scripts/rebuild_nav2_overlay.sh
 ```
 
-This builds the two changed ROS Python packages only. It does not recompile GTSAM or GLIM.
+The helper sources the original, waypoint-review and repaired GLIM overlays in the correct order, builds only `niihan_description` and `niihan_slam`, checks package precedence, and executes the regression tests. It does **not** rebuild GTSAM/GLIM, change the original workspace, or restart your simulation.
 
 ## Run one controlled test
 
