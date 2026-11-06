@@ -55,6 +55,35 @@ This branch consolidates the three recurrent issues into **one launch path**:
 
 **This is a candidate end-to-end fix, not a demonstrated Nav2 recovery.** The last real device output showed GLIM odometry publishing, the health supervisor ready, and Nav2 lifecycle servers inactive / BT Navigator unconfigured. It did not identify the first Nav2 configure error. Delaying startup and selecting a stock tree may resolve a startup race or an invalid custom tree, but the exact underlying lifecycle failure is not yet proven. The launcher will print and save the remaining failure instead of silently reporting success.
 
+## Confirmed Nav2 lifecycle failure and correction (November 6)
+
+The laptop's seaport startup log identified the exact first failure:
+
+```text
+[collision_monitor]: Error while getting parameters:
+parameter 'observation_sources' is not initialized
+[lifecycle_manager_navigation]: Failed to change state for node: collision_monitor
+[lifecycle_manager_navigation]: Failed to bring up all requested nodes.
+```
+
+The upstream Jazzy navigation launch configures `collision_monitor` before
+`bt_navigator`. It also includes docking and route servers; this project has
+no dock plugin/database or route graph configured. Therefore the seaport
+profile now uses `nav2_seaport_core.launch.py`, managing exactly the eight
+needed navigation nodes, **including collision_monitor**. The Nav2 YAML
+specifies a real `/scan` observation source and a stop zone with a 0.70 m
+radius, with `base_nav` as the robot frame. Unfiltered Nav2 velocity is not
+sent directly to the command arbiter: controller/recovery commands go through
+velocity smoothing and/or the collision monitor; the monitor outputs to
+`/niihan/cmd_vel/nav`, which remains governed by NIIHAN's existing
+health, e-stop and watchdog systems.
+
+The dashboard and diagnostic tool now require `collision_monitor` to be
+`active [3]` before declaring navigation ready. No fake docking location
+has been added. **The source fix is confirmed against the logged missing
+parameter; live lifecycle activation after this change is not yet verified.**
+Do not bypass monitor, e-stop, or map/TF requirements to force motion.
+
 ## Install the unified branch without overwriting anything
 
 On the HP OMEN, from a **new terminal**:
