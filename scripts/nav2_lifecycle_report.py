@@ -24,6 +24,7 @@ NAV_NODES = (
     "bt_navigator",
     "waypoint_follower",
     "velocity_smoother",
+    "collision_monitor",
 )
 DASHBOARD_REQUIRED = (
     "controller_server",
@@ -31,6 +32,7 @@ DASHBOARD_REQUIRED = (
     "bt_navigator",
     "behavior_server",
     "velocity_smoother",
+    "collision_monitor",
 )
 
 
