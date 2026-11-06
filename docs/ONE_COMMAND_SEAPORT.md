@@ -84,6 +84,23 @@ has been added. **The source fix is confirmed against the logged missing
 parameter; live lifecycle activation after this change is not yet verified.**
 Do not bypass monitor, e-stop, or map/TF requirements to force motion.
 
+## Update an existing `niihan_unified` worktree (this laptop)
+
+If you already followed the first unified-launch instructions, **do not**
+create another worktree and do not reinstall GLIM. Stop the old Gazebo
+launch cleanly with Ctrl+C, then:
+
+```bash
+cd ~/surveillance_project/niihan_unified
+git fetch https://github.com/mayureshcode/niihan_ws.git refs/heads/fix/unified-seaport-startup-20261106
+git merge --ff-only FETCH_HEAD
+bash scripts/start_seaport.sh
+```
+
+A non-fast-forward merge or uncommitted-file conflict stops rather than
+overwriting local work. The launcher rebuilds the three Python ROS packages
+and runs the corrected collision-monitor regressions before Gazebo launch.
+
 ## Install the unified branch without overwriting anything
 
 On the HP OMEN, from a **new terminal**:
