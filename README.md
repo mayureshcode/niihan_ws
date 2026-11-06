@@ -32,6 +32,10 @@ GLIM source prerequisites: GTSAM 4.3a0 (`3ad4b4c3cb28394c9597f48fa02dad361c8450e
 
 If GLIM exits with `libgtsam_points.so.1: not found`, `libgtsam.so.4: not found`, or `libglim.so: undefined symbol: _ZTVN5gtsam28PreintegratedImuMeasurementsE`, **do not symlink different GTSAM versions or assume that installing apt libraries fixes a source-built GLIM**. An older GLIM binary and newer GTSAM may be ABI-incompatible. See [isolated Ubuntu 24.04 / Jazzy GLIM recovery](docs/GLIM_ABI_RECOVERY.md). The `scripts/repair_glim_abi.sh` tool rebuilds the pinned CPU GTSAM, gtsam_points, GLIM and glim_ros stack into a separate worktree and checks ELF symbol resolution. Runtime navigation remains to be verified with real sensors, TF and health status.
 
+## Jazzy Nav2 lifecycle recovery (seaport)
+
+If GLIM publishes odometry and the health supervisor reports ready but `bt_navigator` is `unconfigured` or other Nav2 lifecycle servers are `inactive`, see [Nav2 Jazzy recovery](docs/NAV2_JAZZY_RECOVERY.md). This branch defaults the Jazzy launch to `nav2_bt_profile:=stock` (Nav2's installed behavior trees); `nav2_bt_profile:=custom` restores the original position-arrival trees for comparison. The read-only `scripts/nav2_lifecycle_report.py` shows the lifecycle state of each server. This is a diagnostic startup profile, **not a claim of successful autonomous navigation or collision safety**.
+
 ## Quick setup and visible launch
 
 On Ubuntu 22.04 or 24.04 amd64 with a graphical desktop:
