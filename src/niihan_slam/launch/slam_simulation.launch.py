@@ -2,7 +2,7 @@
 import os,json,tempfile,shutil
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument,IncludeLaunchDescription,OpaqueFunction
+from launch.actions import DeclareLaunchArgument,IncludeLaunchDescription,OpaqueFunction,TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
@@ -51,7 +51,7 @@ def stack(context):
         node('niihan_bringup','sensor_adapter','sensor_adapter',[{'gravity_aligned_height':False,'scan_frame':'base_nav','relay_camera':False}]),
         node('niihan_bringup','health_supervisor','health_supervisor',[{'sensor_timeout':2.0}]),
         node('niihan_bringup','motion_gateway','motion_gateway',[{'drive_enabled':True}]),
-        include(os.path.join(desc,'launch','niihan_navigation.launch.py'),{'use_sim_time':'true','params_file':os.path.join(share,'config','nav2_3d_jazzy.yaml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'nav2_3d.yaml'),'bt_xml':os.path.join(share,'config','navigate_to_pose_position_jazzy.xml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'navigate_to_pose_position.xml'),'bt_profile':LaunchConfiguration('nav2_bt_profile')}),
+        TimerAction(period=float(LaunchConfiguration('nav2_start_delay').perform(context)),actions=[include(os.path.join(desc,'launch','niihan_navigation.launch.py'),{'use_sim_time':'true','params_file':os.path.join(share,'config','nav2_3d_jazzy.yaml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'nav2_3d.yaml'),'bt_xml':os.path.join(share,'config','navigate_to_pose_position_jazzy.xml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'navigate_to_pose_position.xml'),'bt_profile':LaunchConfiguration('nav2_bt_profile')})]),
         node('rviz2','rviz2','rviz2',arguments=['-d',os.path.join(share,'config','slam.rviz')],condition=IfCondition(LaunchConfiguration('rviz'))),
         node('niihan_dashboard','dashboard_node','niihan_dashboard_node',[{'require_health':True,'slam_cloud_topic':'/niihan/slam/map_cloud','rtk_goal_verification':bool(alignment),'arrival_dwell_seconds':1.0}])]
     # Only the common adapter publishes the navigation scan in this profile.
@@ -60,4 +60,4 @@ def stack(context):
     return nodes
 
 def generate_launch_description():
-    return LaunchDescription([DeclareLaunchArgument(n,default_value=v) for n,v in [('world','niihan_portable_site.sdf'),('headless','false'),('rviz','true'),('seed','42'),('spawn_x','-10.0'),('spawn_y','0.0'),('spawn_z','0.15'),('nav2_bt_profile','stock' if os.environ.get('ROS_DISTRO')=='jazzy' else 'custom'),('mode','auto'),('environment_id','portable-site'),('map_directory',os.path.expanduser('~/.local/share/niihan/maps')),('map_file',''),('rtk_alignment_file',''),('gnss_source','gazebo'),('allow_simulated_rtk','false'),('initial_x','0.0'),('initial_y','0.0'),('initial_yaw','0.0'),('output_directory','')]]+[OpaqueFunction(function=stack)])
+    return LaunchDescription([DeclareLaunchArgument(n,default_value=v) for n,v in [('world','niihan_portable_site.sdf'),('headless','false'),('rviz','true'),('seed','42'),('spawn_x','-10.0'),('spawn_y','0.0'),('spawn_z','0.15'),('nav2_bt_profile','stock' if os.environ.get('ROS_DISTRO')=='jazzy' else 'custom'),('nav2_start_delay','15.0' if os.environ.get('ROS_DISTRO')=='jazzy' else '0.0'),('mode','auto'),('environment_id','portable-site'),('map_directory',os.path.expanduser('~/.local/share/niihan/maps')),('map_file',''),('rtk_alignment_file',''),('gnss_source','gazebo'),('allow_simulated_rtk','false'),('initial_x','0.0'),('initial_y','0.0'),('initial_yaw','0.0'),('output_directory','')]]+[OpaqueFunction(function=stack)])
