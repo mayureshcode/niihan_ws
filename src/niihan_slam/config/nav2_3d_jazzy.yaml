@@ -32,6 +32,36 @@ behavior_server:
     global_footprint_topic: global_costmap/published_footprint
     local_frame: odom
     enable_stamped_cmd_vel: false
+# Required by the Jazzy navigation_launch.py lifecycle manager.
+# Keep obstacle protection enabled; never use this to bypass the motion gateway.
+# At low /scan rates, the independent health supervisor must continue to gate motion.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    base_frame_id: base_nav
+    odom_frame_id: odom
+    transform_tolerance: 0.8
+    source_timeout: 0.5
+    stop_pub_timeout: 1.0
+    cmd_vel_in_topic: /cmd_vel_smoothed
+    cmd_vel_out_topic: /niihan/cmd_vel/nav
+    polygons:
+      - StopZone
+    StopZone:
+      type: circle
+      radius: 0.50
+      action_type: stop
+      min_points: 3
+      visualize: true
+      polygon_pub_topic: /niihan/collision_stop_zone
+    observation_sources:
+      - scan
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true
+
 bt_navigator:
   ros__parameters:
     goal_reached_tol: 0.10
