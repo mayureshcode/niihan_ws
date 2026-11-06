@@ -1,3 +1,40 @@
+# Native Jazzy navigation_launch.py activates collision_monitor.
+# Missing observation_sources previously aborted ALL Nav2 lifecycle activation.
+# Keep the monitor active and put its checked velocity on the arbiter's NAV
+# channel. Both smoothed controller commands and recovery behavior commands
+# must reach this filter before the health-gated motion gateway.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    enabled: true
+    base_frame_id: base_nav
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel_smoothed
+    cmd_vel_out_topic: /niihan/cmd_vel/nav
+    state_topic: /niihan/nav2/collision_monitor_state
+    transform_tolerance: 0.5
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 1.0
+    enable_stamped_cmd_vel: false
+    polygons:
+    - RobotStop
+    RobotStop:
+      type: circle
+      radius: 0.70
+      action_type: stop
+      min_points: 3
+      visualize: true
+      polygon_pub_topic: /niihan/nav2/collision_stop_polygon
+      enabled: true
+    observation_sources:
+    - scan
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true
+      source_timeout: 1.0
+
 # Jazzy native Nav2 profile; live simulation acceptance pending.
 behavior_server:
   ros__parameters:
