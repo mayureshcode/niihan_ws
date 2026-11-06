@@ -38,11 +38,25 @@ def stack(context):
         atomic_bytes(saved_alignment,open(alignment,'rb').read())
         alignment=saved_alignment
     elif os.path.isfile(saved_alignment):alignment=saved_alignment
+    # GLIM is compiled against this workspace's pinned GTSAM build. On some
+    # machines /usr/local/lib contains another libgtsam.so.4 with a different
+    # ABI, which causes glim_rosnode to exit 127 with unresolved IMU symbols.
+    # Scope the loader override to GLIM; don't change Gazebo/Nav2 or the shell.
+    from ament_index_python.packages import get_package_prefix
+    glim_prefix=get_package_prefix('glim')
+    workspace=os.path.dirname(os.path.dirname(glim_prefix))
+    gtsam_lib=os.path.join(workspace,'.deps',os.environ.get('ROS_DISTRO','jazzy'),'install','lib')
+    glim_env={}
+    if os.path.isfile(os.path.join(gtsam_lib,'libgtsam.so.4')):
+        glim_env={'LD_LIBRARY_PATH':gtsam_lib+os.pathsep+os.environ.get('LD_LIBRARY_PATH','')}
+        print(f'GLIM GTSAM runtime library directory: {gtsam_lib}')
+    else:
+        print(f'WARNING: pinned GLIM GTSAM library not found: {gtsam_lib}; retaining existing loader paths')
     clock={'use_sim_time':True}
     def node(package,executable,name,params=None,**kw):return Node(package=package,executable=executable,name=name,output='screen',parameters=[clock]+(params or []),**kw)
     def include(path,args):return IncludeLaunchDescription(PythonLaunchDescriptionSource(path),launch_arguments=args.items())
     nodes=[include(os.path.join(desc,'launch','niihan_gazebo.launch.py'),{'world':LaunchConfiguration('world'),'spawn_x':LaunchConfiguration('spawn_x'),'spawn_y':LaunchConfiguration('spawn_y'),'headless':LaunchConfiguration('headless'),'seed':LaunchConfiguration('seed'),'external_stack':'true','minimal_sensors':'true','mapping':'false','launch_nav2':'false','vortex_3d':'false','cliff_detect':'false','rqt_cam':'false','patrol':'false'}),
-        node('glim_ros','glim_rosnode','glim_ros',[{'config_path':cfg,'dump_on_unload':False}],remappings=[('/tf','/niihan/lio/tf')]),
+        node('glim_ros','glim_rosnode','glim_ros',[{'config_path':cfg,'dump_on_unload':False}],remappings=[('/tf','/niihan/lio/tf')],additional_env=glim_env),
         node('niihan_slam','tf_filter','lio_tf_filter',[{'mapping':mode=='mapping'}]),
         node('niihan_slam','map_bridge','slam_map_bridge',[{'mapping':mode=='mapping','output_directory':output,'map_file':map_file or '', 'environment_id':environment}]),
         node('niihan_description','command_arbiter','command_arbiter'),

@@ -32,6 +32,36 @@ behavior_server:
     global_footprint_topic: global_costmap/published_footprint
     local_frame: odom
     enable_stamped_cmd_vel: false
+# Required by the Jazzy navigation_launch.py lifecycle manager.
+# Keep obstacle protection enabled; never use this to bypass the motion gateway.
+# At low /scan rates, the independent health supervisor must continue to gate motion.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    base_frame_id: base_nav
+    odom_frame_id: odom
+    transform_tolerance: 0.8
+    source_timeout: 0.5
+    stop_pub_timeout: 1.0
+    cmd_vel_in_topic: /cmd_vel_smoothed
+    cmd_vel_out_topic: /niihan/cmd_vel/nav
+    polygons:
+      - StopZone
+    StopZone:
+      type: circle
+      radius: 0.50
+      action_type: stop
+      min_points: 3
+      visualize: true
+      polygon_pub_topic: /niihan/collision_stop_zone
+    observation_sources:
+      - scan
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true
+
 bt_navigator:
   ros__parameters:
     goal_reached_tol: 0.10
@@ -109,6 +139,23 @@ controller_server:
     progress_checker_plugins:
     - progress_checker
     enable_stamped_cmd_vel: false
+# Jazzy's stock navigation_launch.py always manages docking_server.
+# This rover has no deployed dock; configure the required plugin with an empty
+# dock database so docking does not block normal Nav2 waypoint navigation.
+# No physical dock is defined or advertised by this profile.
+docking_server:
+  ros__parameters:
+    use_sim_time: true
+    base_frame: base_nav
+    fixed_frame: odom
+    odom_topic: /odom
+    dock_plugins:
+      - no_site_dock
+    no_site_dock:
+      plugin: opennav_docking::SimpleNonChargingDock
+      use_external_detection_pose: false
+    docks: []
+
 global_costmap:
   global_costmap:
     ros__parameters:
