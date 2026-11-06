@@ -113,7 +113,7 @@ read -r spawn_x spawn_y spawn_z <<<"$coords"
 echo "World: $world"
 echo "Validated robot spawn: $spawn_x, $spawn_y, $spawn_z"
 echo "Camera: no backend 180-degree rotation"
-echo "Nav2: configured /scan collision monitor; route/docking removed from mission startup."\necho "Nav2 profile: stock Jazzy; startup deferred 15 seconds for GLIM bootstrap."
+echo "Nav2: configured /scan collision monitor; route/docking removed from mission startup."\necho "Nav2 profile: core lifecycle (including collision_monitor), stock Jazzy BT; startup deferred 15 seconds."
 echo "Dashboard: http://localhost:8080"
 echo "================================================"
 
@@ -134,5 +134,5 @@ trap cleanup EXIT
 ros2 launch niihan_slam slam_simulation.launch.py \
   world:="$world" mode:=mapping headless:=false rviz:=false \
   spawn_x:="$spawn_x" spawn_y:="$spawn_y" spawn_z:="$spawn_z" \
-  nav2_bt_profile:=stock nav2_start_delay:=15.0 \
+  nav2_bt_profile:=stock nav2_stack_profile:=core nav2_start_delay:=15.0 \
   environment_id:=sea-port-mapping-v1 seed:=42
