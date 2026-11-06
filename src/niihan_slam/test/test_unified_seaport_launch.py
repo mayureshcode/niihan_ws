@@ -40,7 +40,7 @@ def test_integrated_launcher_preserves_real_safety_and_pinned_glim():
     assert '"$glim/scripts/environment.sh"' in runner
     assert 'ldd -r "$binary"' in runner
     assert "niihan_description niihan_slam niihan_dashboard" in runner
-    assert "nav2_bt_profile:=stock nav2_start_delay:=15.0" in runner
+    assert "nav2_bt_profile:=stock nav2_stack_profile:=core nav2_start_delay:=15.0" in runner
     assert "scripts/nav2_lifecycle_report.py" in runner
     assert "ros2 launch niihan_slam slam_simulation.launch.py" in runner
     assert "ground_truth" not in runner
