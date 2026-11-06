@@ -1,3 +1,49 @@
+## Confirmed Nav2 blocker — fixed in this branch
+
+The actual November 6 simulation log (11:34:30 local) showed:
+
+```text
+[lifecycle_manager_navigation]: Configuring collision_monitor
+[collision_monitor]: Error while getting parameters: parameter 'observation_sources' is not initialized
+[lifecycle_manager_navigation]: Failed to change state for node: collision_monitor
+[lifecycle_manager_navigation]: Failed to bring up all requested nodes. Aborting bringup.
+```
+
+The controller, smoother, planner, route and behavior servers had configured successfully before this. The previous problem was **not** caused by GLIM's dynamic linker or the custom behavior tree. This update adds `collision_monitor` parameters to `nav2_3d_jazzy.yaml` and chooses a seaport-specific Nav2 launch with the required mission servers (including Collision Monitor). The upstream Jazzy launcher also manages route/docking servers even though this rover uses neither; they are deliberately omitted from the mission launcher, rather than inventing a fake charging dock.
+
+**Velocity safety chain:**
+
+```text
+Nav2 controller -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel_smoothed
+Nav2 recovery behavior -----------------------------> /cmd_vel_smoothed
+                                  |
+                                  v
+                       collision_monitor
+                     /scan + RobotStop zone
+                                  |
+                                  v
+                      /niihan/cmd_vel/nav
+                                  |
+                     command_arbiter (e-stop)
+                                  |
+                    health-gated motion_gateway
+                                  |
+                            Gazebo drive
+```
+
+This eliminates the earlier risk of remapping the velocity smoother directly to the arbiter and bypassing Collision Monitor. The circle stop radius is 0.70 m, conservative for the current nominal 0.7 m × 0.5 m footprint; it is a **preliminary simulation value**, not a field-certified braking radius. The active safety supervisor still requires fresh /scan, /odom and sensors. No autonomous motion should be enabled until sensor visibility, collision geometry, TF and map alignment are verified.
+
+**To update an existing `niihan_unified` worktree** (stop the current simulation with Ctrl+C first):
+
+```bash
+cd ~/surveillance_project/niihan_unified
+git fetch https://github.com/mayureshcode/niihan_ws.git refs/heads/fix/unified-seaport-startup-20261106
+git checkout --detach FETCH_HEAD
+bash scripts/start_seaport.sh
+```
+
+Expected new lifecycle progression: `Configuring collision_monitor` completes; then `Configuring bt_navigator`, activating all managed nodes, and the automatic report shows `collision_monitor: active [3]` plus the dashboard's required nodes active. This **still requires a live test**; further failure logs should identify any next distinct blocker.
+
 # One-command Site Robotics seaport startup (Ubuntu 24.04/Jazzy)
 
 This branch consolidates the three recurrent issues into **one launch path**:
