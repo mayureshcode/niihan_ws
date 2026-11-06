@@ -94,7 +94,8 @@ if grep -q 'cv2.ROTATE_180' "$root/src/niihan_dashboard/niihan_dashboard/ros_bri
   echo "Camera rotation regression detected. Aborting." >&2; exit 2
 fi
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q -p no:cacheprovider \
-  "$root/src/niihan_slam/test/test_nav2_launch_profile.py"
+  "$root/src/niihan_slam/test/test_nav2_launch_profile.py" \
+  "$root/src/niihan_slam/test/test_unified_seaport_launch.py"
 python3 -m py_compile \
   "$root/src/niihan_slam/launch/slam_simulation.launch.py" \
   "$root/src/niihan_description/launch/niihan_navigation.launch.py"
