@@ -8,12 +8,11 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+    DeclareLaunchArgument, IncludeLaunchDescription,
     LogInfo, OpaqueFunction,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import SetRemap
 from nav2_common.launch import RewrittenYaml
 
 
@@ -56,25 +55,17 @@ def _navigation_actions(context):
     return [
         LogInfo(msg='Nav2 BT profile: ' + profile +
                 '; pose=' + navigate_to_pose),
-        GroupAction(actions=[
-            # Preserve the original command ownership; arbiter and motion
-            # gateway retain health, e-stop and watchdog enforcement.
-            SetRemap(src='velocity_smoother:cmd_vel_smoothed',
-                     dst='/niihan/cmd_vel/nav'),
-            SetRemap(src='behavior_server:cmd_vel',
-                     dst='/niihan/cmd_vel/nav'),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(os.path.join(
-                    get_package_share_directory('nav2_bringup'),
-                    'launch', 'navigation_launch.py')),
-                launch_arguments={
-                    'use_sim_time': LaunchConfiguration('use_sim_time'),
-                    'params_file': params_file,
-                    'autostart': LaunchConfiguration('autostart'),
-                    'use_composition': 'False',
-                }.items(),
-            ),
-        ]),
+        # Seaport-specific Nav2 bringup keeps collision_monitor in the
+        # command path, without launching unrelated route/docking servers.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(
+                package_dir, 'launch', 'nav2_seaport_core.launch.py')),
+            launch_arguments={
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'params_file': params_file,
+                'autostart': LaunchConfiguration('autostart'),
+            }.items(),
+        ),
     ]
 
 
