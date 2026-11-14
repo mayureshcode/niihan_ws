@@ -55,7 +55,8 @@ class ROSBridgeNode(Node):
                             ('pose_freeze_timeout', 3.0), ('require_health', False), ('slam_cloud_topic', '/vortex/point_cloud_map'),
                             ('goal_verify_position_tolerance', 0.25),
                             ('arrival_dwell_seconds',1.0),('rtk_goal_verification',False),('rtk_goal_tolerance',0.10),
-                            ('geofence_margin', 0.45), ('battery_simulation', False)):
+                            ('geofence_margin', 0.45), ('battery_simulation', False),
+                            ('require_site_geofence', False)):
             self.declare_parameter(name, value)
         self.global_frame = self.get_parameter('global_frame').value
         self.base_frame = self.get_parameter('robot_base_frame').value
@@ -563,6 +564,8 @@ class ROSBridgeNode(Node):
                 self._stop_navigation('Mode changed; navigation cancelled.')
             self.safety_manager.set_mode(mode)
         elif action == 'joystick':
+            if self.get_parameter('require_site_geofence').value and not self.geofence_manager.enabled:
+                return self._response(action, False, 'Site geofence must be configured before manual driving.')
             linear = float(data.get('linear_x', 0.0))
             angular = float(data.get('angular_z', 0.0))
             if not math.isfinite(linear) or not math.isfinite(angular):
@@ -672,6 +675,8 @@ class ROSBridgeNode(Node):
             return False, 'Fresh calibrated RTK-fixed position is required.'
         if not self.safety_manager.validate_auto_command():
             return False, 'Navigation requires AUTO mode and a cleared e-stop.'
+        if self.get_parameter('require_site_geofence').value and not self.geofence_manager.enabled:
+            return False, 'Site geofence must be configured before autonomous navigation.'
         if self._active_navigation is not None and not resuming:
             return False, 'Navigation is already active or cancellation is pending.'
         if not self.check_nav2():
