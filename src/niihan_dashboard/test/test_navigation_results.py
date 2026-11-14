@@ -326,3 +326,86 @@ def test_lateral_wheel_motion_blocks_arrival(monkeypatch):
     for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
         now[0]=t;node._wheel_received=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
     assert not node.dispatched
+
+
+def _home_bridge():
+    node, _ = bridge()
+    node._active_navigation = None
+    node.home_pose = None
+    node.home_source = None
+    node.global_frame = 'map'
+    node.geofence_manager = GeofenceManager()
+    node.get_parameter = lambda name: NS(value=False)
+    node._update_pose_from_tf = lambda: True
+    return node
+
+
+def test_set_home_captures_fresh_current_pose_and_uses_existing_nav_path():
+    node = _home_bridge()
+    result = node._process_command('set_home', {'action': 'set_home'})
+    assert result['success']
+    assert node.home_pose == {'x': 2., 'y': 3., 'z': -.6, 'yaw': None}
+    assert node.home_source == 'captured_live_tf'
+    sent = []
+    def fake_send(x, y, yaw=None, z=None):
+        sent.append((x, y, z))
+        node._active_navigation = {'kind': 'nav'}
+        return True, 'Navigation goal sent.'
+    node.send_nav_goal = fake_send
+    result = node._process_command('return_home', {'action': 'return_home'})
+    assert result['success']
+    assert sent == [(2., 3., -.6)]
+    assert node._active_navigation['purpose'] == 'return_home'
+
+
+def test_home_cannot_be_configured_during_active_mission():
+    node = _home_bridge()
+    node._active_navigation = {'kind': 'mission', 'cancelling': False}
+    result = node._process_command('set_home', {'action': 'set_home'})
+    assert not result['success']
+    result = node._process_command('return_home', {'action': 'return_home'})
+    assert not result['success']
+
+
+def test_return_home_requires_explicit_session_home_and_no_active_goal():
+    node = _home_bridge()
+    assert not node._process_command('return_home', {'action': 'return_home'})['success']
+    assert not node._process_command('set_home', {'x': 2.})['success']
+    assert not node._process_command('set_home', {'frame': 'odom', 'x': 2., 'y': 3.})['success']
+    node._update_pose_from_tf = lambda: False
+    assert not node._process_command('set_home', {})['success']
+
+
+def test_home_rejects_coordinates_outside_single_site_geofence():
+    node = _home_bridge()
+    assert node.geofence_manager.set_geofence([
+        {'x':0,'y':0}, {'x':5,'y':0}, {'x':5,'y':5}, {'x':0,'y':5}])[0]
+    node._map_info = object()
+    result = node._process_command('set_home', {'x': 10., 'y': 3., 'z': -.6})
+    assert not result['success'] and node.home_pose is None
+    result = node._process_command('set_home', {'x': 2., 'y': 3., 'z': -.6})
+    assert result['success']
+    assert node.home_source == 'operator_map_coordinates'
+
+
+def test_return_home_rechecks_updated_geofence_through_nav_gate():
+    node = _home_bridge()
+    node.home_pose = {'x': 9., 'y': 9., 'z': -.6, 'yaw': None}
+    node._map_info = object()
+    node.safety_manager = NS(validate_auto_command=lambda: True)
+    node.check_nav2 = lambda: True
+    assert node.geofence_manager.set_geofence([
+        {'x':0.,'y':0.}, {'x':5.,'y':0.}, {'x':5.,'y':5.}, {'x':0.,'y':5.}])[0]
+    result = node._process_command('return_home', {'action': 'return_home'})
+    assert not result['success']
+    assert node._active_navigation is None
+
+
+def test_clearing_home_requires_idle_navigation():
+    node = _home_bridge()
+    node.home_pose = {'x': 2., 'y': 3., 'z': -.6, 'yaw': None}
+    node._active_navigation = {'kind': 'nav'}
+    assert not node._process_command('clear_home', {'action': 'clear_home'})['success']
+    node._active_navigation = None
+    assert node._process_command('clear_home', {'action': 'clear_home'})['success']
+    assert node.home_pose is None
