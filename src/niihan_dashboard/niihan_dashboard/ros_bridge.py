@@ -82,7 +82,6 @@ class ROSBridgeNode(Node):
         self.home_pose = None   # map-frame software home; operator must set after each restart
         self.home_source = None
         self.operational_status = OperationalStatus()
-        self.battery_simulation = bool(self.get_parameter('battery_simulation').value)
         self.cv_bridge = CvBridge()
         self.telemetry = {
             'pose': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'yaw': 0.0},
@@ -277,7 +276,7 @@ class ROSBridgeNode(Node):
         self.operational_status.update_battery(
             msg.percentage, status_by_code.get(msg.power_supply_status, 'unknown'),
             voltage=msg.voltage, present=msg.present,
-            simulation=self.battery_simulation)
+            simulation=bool(self.get_parameter('battery_simulation').value))
 
     @synchronized
     def drive_command_callback(self, msg):
