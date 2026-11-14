@@ -230,6 +230,12 @@ def rtk_bridge():
     node,operation=bridge();node.rtk_goal_verification=True;node.rtk_goal_tolerance=.10
     node.rtk_pose={'x':2.,'y':3.,'z':-.6,'stamp':1.};node._rtk_ready=lambda:True
     node.arrival_dwell_seconds=1.;node.telemetry['velocity']={'linear_x':0.,'angular_z':0.}
+    # Simulated wheel feedback must be fresh for every stationary arrival sample.
+    import time
+    node._wheel_motion={'linear_x':0.,'linear_y':0.,'angular_z':0.}
+    node._wheel_received=time.monotonic()
+    node._wheel_stamp=1.
+    node._wheel_max_age=.75
     node.geofence_margin=.45;node.geofence_manager=GeofenceManager()
     return node,operation
 
@@ -240,14 +246,14 @@ def test_rtk_success_requires_stopped_dwell_and_distinct_measurements(monkeypatc
     node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
     assert node.navigation['state']=='VERIFYING' and not node.dispatched
     for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
-        now[0]=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
+        now[0]=t;node.rtk_pose['stamp']=stamp;node._wheel_received=t;node._check_arrival()
     assert node.dispatched==[1] and node.mission_manager.waypoints[0]['status']=='COMPLETED'
 
 def test_repeated_identical_fix_cannot_satisfy_arrival(monkeypatch):
     import niihan_dashboard.ros_bridge as module
     now=[10.];monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
     node,operation=rtk_bridge();node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
-    for t in [10.,10.5,11.1,12.]:now[0]=t;node._check_arrival()
+    for t in [10.,10.5,11.1,12.]:now[0]=t;node._wheel_received=t;node._check_arrival()
     assert not node.dispatched and node.navigation['state']=='VERIFYING'
     now[0]=21.;node._check_arrival()
     assert node.mission_manager.state=='FAILED'
@@ -274,3 +280,49 @@ def test_cancel_during_arrival_verification_finishes_without_waiting_for_an_old_
     node,operation=rtk_bridge();node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
     node.cmd_vel_pub=NS(publish=lambda msg:None);node._stop_navigation('Cancelled')
     assert node._active_navigation is None and node.mission_manager.state=='CANCELLED'
+
+
+def test_slam_velocity_drift_does_not_override_stopped_wheels(monkeypatch):
+    import niihan_dashboard.ros_bridge as module
+    now=[10.];monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
+    node,operation=rtk_bridge()
+    node.telemetry['velocity']={'linear_x':.08,'linear_y':-.02,'angular_z':0.}
+    node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
+    for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
+        now[0]=t;node._wheel_received=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
+    assert node.dispatched==[1]
+
+
+def test_moving_wheels_block_arrival_despite_good_localization(monkeypatch):
+    import niihan_dashboard.ros_bridge as module
+    now=[10.];monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
+    node,operation=rtk_bridge()
+    node._wheel_motion={'linear_x':.2,'linear_y':0.,'angular_z':0.}
+    node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
+    for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
+        now[0]=t;node._wheel_received=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
+    assert not node.dispatched
+    assert node.navigation['state']=='VERIFYING'
+
+
+def test_stale_wheel_feedback_blocks_arrival(monkeypatch):
+    import niihan_dashboard.ros_bridge as module
+    now=[10.];monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
+    node,operation=rtk_bridge()
+    node._wheel_received=0.
+    node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
+    for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
+        now[0]=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
+    assert not node.dispatched
+    assert node.navigation['wheel_motion_fresh'] is False
+
+
+def test_lateral_wheel_motion_blocks_arrival(monkeypatch):
+    import niihan_dashboard.ros_bridge as module
+    now=[10.];monkeypatch.setattr(module.time,'monotonic',lambda:now[0])
+    node,operation=rtk_bridge()
+    node._wheel_motion={'linear_x':0.,'linear_y':.08,'angular_z':0.}
+    node._goal_result(future(NS(status=GoalStatus.STATUS_SUCCEEDED)),operation,1)
+    for t,stamp in [(10.,1.),(10.5,2.),(11.1,3.)]:
+        now[0]=t;node._wheel_received=t;node.rtk_pose['stamp']=stamp;node._check_arrival()
+    assert not node.dispatched

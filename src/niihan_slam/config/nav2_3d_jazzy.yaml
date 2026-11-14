@@ -94,7 +94,8 @@ controller_server:
       plugin: nav2_controller::SimpleGoalChecker
       # Recheck XY after saved-map corrections; yaw is unrestricted.
       stateful: false
-      xy_goal_tolerance: 0.02
+      # Align Nav2 acceptance with the 0.10 m BT GoalReached threshold.
+      xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 3.141593
     goal_checker_plugins:
     - general_goal_checker
