@@ -484,6 +484,11 @@ class ROSBridgeNode(Node):
     @synchronized
     def safety_loop(self):
         gnss=self.telemetry['gnss'];now=time.monotonic()
+        # A cached health 'ready' value must never survive supervisor silence.
+        # The motion gateway independently denies stale permission within 0.3s.
+        if now - self._health_received > 2.0:
+            self.telemetry['hardware_health'] = {
+                'ready': False, 'faults': ['health_supervisor_stale']}
         gnss['fresh']=now-self.gnss_fix_received<1.0 and now-self.gnss_metrics_received<1.0
         stamp=gnss.get('stamp')
         if not isinstance(stamp,(int,float)) or not -.05<=self.get_clock().now().nanoseconds/1e9-stamp<=1.:gnss['fresh']=False
