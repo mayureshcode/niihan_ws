@@ -437,3 +437,23 @@ def test_stale_running_mission_state_blocks_home_even_without_action():
     assert not node._process_command('set_home', {'action': 'set_home'})['success']
     node.home_pose = {'x':2.,'y':3.,'z':-.6,'yaw':None}
     assert not node._process_command('return_home', {'action': 'return_home'})['success']
+
+
+def test_battery_ros_topic_callback_converts_standard_fraction():
+    from sensor_msgs.msg import BatteryState
+    from niihan_dashboard.operational_status import OperationalStatus
+    node = ROSBridgeNode.__new__(ROSBridgeNode)
+    node._state_lock = threading.RLock()
+    node.operational_status = OperationalStatus()
+    node.get_parameter = lambda name: NS(value=False)
+    msg = BatteryState()
+    msg.present = True
+    msg.percentage = .72
+    msg.voltage = 25.
+    msg.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
+    node.battery_callback(msg)
+    battery = node.operational_status.battery()
+    assert battery['available']
+    assert battery['percentage'] == pytest.approx(72.)
+    assert battery['charging'] is False
+    assert battery['simulation'] is False
