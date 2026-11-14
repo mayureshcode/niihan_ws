@@ -47,7 +47,32 @@ assert.equal(t.planner.drafts.length,0);
 
 t=stub();
 t.planner.confirmed=true;
-click(t.planner); // no live occupancy grid: never send
+click(t.planner); // no live occupancy grid: submit for planning, not automatic movement
+assert.equal(t.sent,1);
+assert.equal(t.planner.drafts.length,0);
+assert.match(t.planner.message,/UNVERIFIED/);
+
+t=stub();
+t.planner.confirmed=true;
+t.planner.map={width:20,height:20,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(400).fill(-1)};
+click(t.planner); // unmapped target is a mission coordinate, not a drive command
+assert.equal(t.sent,1);
+assert.match(t.planner.message,/UNVERIFIED/);
+
+t=stub();
+t.planner.confirmed=true;
+t.planner.map={width:20,height:20,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(400).fill(0)};
+t.planner.map.data[4*20+4]=-1; // one unknown cell inside the 0.45 m clearance ring
+click(t.planner);
+assert.equal(t.sent,1);
+assert.match(t.planner.message,/UNVERIFIED/);
+
+t=stub();
+t.planner.confirmed=true;
+t.planner.map={width:20,height:20,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(400).fill(0)};
+t.planner.map.data[5*20+5]=-1; // unknown must NOT hide a known obstacle nearby
+t.planner.map.data[6*20+5]=100;
+click(t.planner);
 assert.equal(t.sent,0);
 assert.equal(t.planner.drafts.length,1);
 
@@ -71,4 +96,4 @@ assert.equal(t.planner.anchorRobotPending,false);
 assert.equal(t.planner.previewPins.length,0);
 assert.equal(t.sent,0);
 global.document=originalDocument;
-console.log('PASS site planner drafts, occupancy validation and safety guards');
+console.log('PASS site planner GLB waypoint submission, obstacle checks, alignment and safety guards');
