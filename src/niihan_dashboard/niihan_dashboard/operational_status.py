@@ -28,6 +28,7 @@ class OperationalStatus:
         self._drive_at = None
         self._wheel = None
         self._wheel_at = None
+        self._camera_at = None
         self._motion_kind = None
         self._motion_since = None
         self._ever_localized = False
@@ -86,6 +87,9 @@ class OperationalStatus:
         self._wheel = (math.hypot(x, y), abs(w))
         self._wheel_at = self.clock()
 
+    def camera_seen(self):
+        self._camera_at = self.clock()
+
     def _motion_anomaly(self, now, enabled):
         if not enabled or self._drive is None or self._wheel is None or (
             now - self._drive_at > .6 or now - self._wheel_at > .6
@@ -104,7 +108,8 @@ class OperationalStatus:
         return None
 
     def evaluate(self, *, pose_valid, navigation_state, health=None, estop=False,
-                 geofence_enabled=False, inside_geofence=True, now=None):
+                 geofence_enabled=False, inside_geofence=True,
+                 manual_command_timeout=False, now=None):
         """Evaluate only robot-operational signals; no camera/AI/behavior inference."""
         now = self.clock() if now is None else now
         self._ever_localized |= bool(pose_valid)
@@ -117,6 +122,10 @@ class OperationalStatus:
         def issue(code, severity, message):
             desired[code] = {'code': code, 'severity': severity, 'message': message}
 
+        if manual_command_timeout:
+            issue('MANUAL_COMMAND_TIMEOUT', 'warning', 'Manual command stream timed out; drive watchdog is active.')
+        if self._camera_at is not None and now - self._camera_at > 3.0:
+            issue('CAMERA_FEED_STALE', 'warning', 'Previously active front camera feed has stopped.')
         if estop:
             issue('ESTOP_ACTIVE', 'critical', 'Robot software emergency stop is active.')
         if self._ever_localized and not pose_valid:
