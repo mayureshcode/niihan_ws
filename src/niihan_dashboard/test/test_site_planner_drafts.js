@@ -62,7 +62,7 @@ assert.match(t.planner.message,/UNVERIFIED/);
 t=stub();
 t.planner.confirmed=true;
 t.planner.map={width:20,height:20,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(400).fill(0)};
-t.planner.map.data[2*20+2]=-1; // one unknown clearance cell
+t.planner.map.data[4*20+4]=-1; // one unknown cell inside the 0.45 m clearance ring
 click(t.planner);
 assert.equal(t.sent,1);
 assert.match(t.planner.message,/UNVERIFIED/);
