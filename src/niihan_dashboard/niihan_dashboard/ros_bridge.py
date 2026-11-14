@@ -435,6 +435,7 @@ class ROSBridgeNode(Node):
                 with self._state_lock:
                     self.latest_image = base64.b64encode(encoded).decode('utf-8')
                     self.image_generation += 1
+                    self.operational_status.camera_seen()
         except Exception as exc:
             self.get_logger().error(f'Image conversion error: {exc}')
 
@@ -509,6 +510,10 @@ class ROSBridgeNode(Node):
                 navigation_state=self.navigation.get('state'),
                 health=self.telemetry.get('hardware_health'),
                 estop=self.safety_manager.estop_active,
+                manual_command_timeout=(
+                    self.safety_manager.mode == 'MANUAL' and
+                    self.safety_manager.last_command_time > 0 and
+                    now - self.safety_manager.last_command_time > self.safety_manager.timeout_sec),
                 geofence_enabled=self.geofence_manager.enabled,
                 inside_geofence=(not self.geofence_manager.enabled or
                     (valid and self.geofence_manager.is_robot_inside(
