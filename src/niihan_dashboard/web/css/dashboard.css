@@ -476,3 +476,39 @@ body {
     .site-planner-controls { font-size:11px; gap:6px; }
     .site-planner-controls input[type="file"] { max-width:130px; }
 }
+
+
+/* Satellite planner is optional; all original dashboard panels remain unchanged. */
+#satellite-map-canvas {position:absolute; inset:0; width:100%; height:100%; background:#18232b;}
+#view-satellite {min-height:340px;}
+.sat-controls {
+    position:absolute; top:9px; left:9px; right:9px; z-index:3;
+    display:flex; flex-wrap:wrap; align-items:center; gap:7px;
+    background:rgba(14,19,25,.94); border:1px solid #526678;
+    border-radius:6px; padding:8px; font-size:11px; max-height:55%;
+    overflow-y:auto;
+}
+.sat-controls label {display:flex; gap:4px; align-items:center;}
+.sat-controls input {background:#202936; color:#fff; border:1px solid #688299;
+    padding:4px; min-width:0; max-width:130px;}
+.sat-controls input[type="password"] {width:135px;}
+.sat-controls .sat-calibration {display:flex; flex-wrap:wrap; align-items:center; gap:6px; width:100%;}
+.sat-controls .sat-calibration input {width:82px;}
+.sat-controls .sat-check {color:#c5f7de; cursor:pointer;}
+#sat-gnss-status {background:rgba(17,29,36,.75); padding:4px;}
+.sat-status {
+    position:absolute; bottom:6px; left:8px; right:8px; z-index:3;
+    color:#fff; background:rgba(0,0,0,.88); font-size:12px;
+    padding:7px; border-radius:3px; pointer-events:none;
+}
+.sat-robot-marker {width:28px; height:28px; display:grid; place-items:center;
+    border:3px solid #fff; border-radius:50%; background:#00a7df;
+    color:white; font-size:14px; font-weight:bold; box-shadow:0 1px 6px black;}
+.sat-draft-marker {width:15px; height:15px; background:#ffab1e;
+    border:2px solid #fff; border-radius:50%; box-shadow:0 1px 6px black;}
+.sat-waypoint-marker {width:15px; height:15px; background:#20bb75;
+    border:2px solid #fff; border-radius:50%; box-shadow:0 1px 6px black;}
+@media(max-width:1050px) {
+    .sat-controls{max-height:65%;}
+    .sat-controls .sat-calibration input{width:67px;}
+}
