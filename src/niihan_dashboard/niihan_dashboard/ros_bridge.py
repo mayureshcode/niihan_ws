@@ -15,7 +15,7 @@ from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid
-from sensor_msgs.msg import JointState, Imu, Image, PointCloud2, NavSatFix
+from sensor_msgs.msg import JointState, Imu, Image, PointCloud2, NavSatFix, BatteryState
 from std_msgs.msg import Bool, String
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import CostmapFilterInfo
@@ -28,6 +28,7 @@ from cv_bridge import CvBridge
 from niihan_dashboard.safety_manager import SafetyManager
 from niihan_dashboard.mission_manager import MissionManager
 from niihan_dashboard.geofence_manager import GeofenceManager
+from niihan_dashboard.operational_status import OperationalStatus
 
 
 def synchronized(method):
@@ -54,7 +55,8 @@ class ROSBridgeNode(Node):
                             ('pose_freeze_timeout', 3.0), ('require_health', False), ('slam_cloud_topic', '/vortex/point_cloud_map'),
                             ('goal_verify_position_tolerance', 0.25),
                             ('arrival_dwell_seconds',1.0),('rtk_goal_verification',False),('rtk_goal_tolerance',0.10),
-                            ('geofence_margin', 0.45)):
+                            ('geofence_margin', 0.45), ('battery_simulation', False),
+                            ('require_site_geofence', False)):
             self.declare_parameter(name, value)
         self.global_frame = self.get_parameter('global_frame').value
         self.base_frame = self.get_parameter('robot_base_frame').value
@@ -77,6 +79,9 @@ class ROSBridgeNode(Node):
         self.geofence_manager = GeofenceManager()
         self.safety_manager = SafetyManager(geofence_manager=self.geofence_manager)
         self.mission_manager = MissionManager(geofence_manager=self.geofence_manager)
+        self.home_pose = None   # map-frame software home; operator must set after each restart
+        self.home_source = None
+        self.operational_status = OperationalStatus()
         self.cv_bridge = CvBridge()
         self.telemetry = {
             'pose': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'yaw': 0.0},
@@ -124,6 +129,12 @@ class ROSBridgeNode(Node):
         self.create_subscription(Odometry, '/odom', self.odom_callback, qos_profile_sensor_data)
         self.create_subscription(Odometry, '/niihan/wheel/odom',
                                  self.wheel_odom_callback, qos_profile_sensor_data)
+        # Standard battery interface supplied by hardware/Sidd; no mock publisher
+        # is started by default. Percent in BatteryState is a 0..1 fraction.
+        self.create_subscription(BatteryState, '/niihan/battery/state',
+                                 self.battery_callback, qos_profile_sensor_data)
+        self.create_subscription(Twist, '/niihan/drive/cmd_vel',
+                                 self.drive_command_callback, 10)
         self.telemetry['gnss'] = {'available': False, 'quality': 'unknown', 'satellite_count':None, 'hdop':None, 'vdop':None, 'lock':False, 'rtk_lock':False,'goal_verification_required':self.rtk_goal_verification}
         self.gnss_metrics_received=-math.inf;self.gnss_fix_received=-math.inf
         self.telemetry['hardware_health'] = {'ready': False, 'faults': ['waiting_for_supervisor']}
@@ -250,6 +261,26 @@ class ROSBridgeNode(Node):
         self._wheel_motion = {
             'linear_x': linear_x, 'linear_y': linear_y, 'angular_z': angular_z
         }
+        if hasattr(self, 'operational_status'):
+            self.operational_status.update_wheel(linear_x, linear_y, angular_z)
+
+    @synchronized
+    def battery_callback(self, msg):
+        status_by_code = {
+            BatteryState.POWER_SUPPLY_STATUS_UNKNOWN: 'unknown',
+            BatteryState.POWER_SUPPLY_STATUS_CHARGING: 'charging',
+            BatteryState.POWER_SUPPLY_STATUS_DISCHARGING: 'discharging',
+            BatteryState.POWER_SUPPLY_STATUS_NOT_CHARGING: 'not_charging',
+            BatteryState.POWER_SUPPLY_STATUS_FULL: 'full',
+        }
+        self.operational_status.update_battery(
+            msg.percentage, status_by_code.get(msg.power_supply_status, 'unknown'),
+            voltage=msg.voltage, present=msg.present,
+            simulation=bool(self.get_parameter('battery_simulation').value))
+
+    @synchronized
+    def drive_command_callback(self, msg):
+        self.operational_status.update_drive(msg.linear.x, msg.angular.z)
 
     @synchronized
     def odom_callback(self, msg):
@@ -340,6 +371,7 @@ class ROSBridgeNode(Node):
         except (ValueError, TypeError):
             pass
 
+    @synchronized
     def hardware_health_callback(self, msg):
         self._health_received = time.monotonic()
         try:
@@ -404,6 +436,7 @@ class ROSBridgeNode(Node):
                 with self._state_lock:
                     self.latest_image = base64.b64encode(encoded).decode('utf-8')
                     self.image_generation += 1
+                    self.operational_status.camera_seen()
         except Exception as exc:
             self.get_logger().error(f'Image conversion error: {exc}')
 
@@ -452,6 +485,11 @@ class ROSBridgeNode(Node):
     @synchronized
     def safety_loop(self):
         gnss=self.telemetry['gnss'];now=time.monotonic()
+        # A cached health 'ready' value must never survive supervisor silence.
+        # The motion gateway independently denies stale permission within 0.3s.
+        if now - self._health_received > 2.0:
+            self.telemetry['hardware_health'] = {
+                'ready': False, 'faults': ['health_supervisor_stale']}
         gnss['fresh']=now-self.gnss_fix_received<1.0 and now-self.gnss_metrics_received<1.0
         stamp=gnss.get('stamp')
         if not isinstance(stamp,(int,float)) or not -.05<=self.get_clock().now().nanoseconds/1e9-stamp<=1.:gnss['fresh']=False
@@ -472,6 +510,20 @@ class ROSBridgeNode(Node):
         elif self.safety_manager.mode == 'MANUAL' and not self.safety_manager.can_move():
             self.cmd_vel_pub.publish(Twist())
         self._check_arrival()
+        if hasattr(self, 'operational_status'):
+            self.operational_status.evaluate(
+                pose_valid=valid,
+                navigation_state=self.navigation.get('state'),
+                health=self.telemetry.get('hardware_health'),
+                estop=self.safety_manager.estop_active,
+                manual_command_timeout=(
+                    self.safety_manager.mode == 'MANUAL' and
+                    self.safety_manager.last_command_time > 0 and
+                    now - self.safety_manager.last_command_time > self.safety_manager.timeout_sec),
+                geofence_enabled=self.geofence_manager.enabled,
+                inside_geofence=(not self.geofence_manager.enabled or
+                    (valid and self.geofence_manager.is_robot_inside(
+                        pose['x'], pose['y'], self.geofence_margin))))
 
     @staticmethod
     def _response(action, success, message):
@@ -489,7 +541,7 @@ class ROSBridgeNode(Node):
             return self._response(action, False, str(exc))
 
     def _process_command(self, action, data):
-        if action in ('joystick', 'nav_goal', 'start_mission', 'resume_mission') and self.get_parameter('require_health').value:
+        if action in ('joystick', 'nav_goal', 'start_mission', 'resume_mission', 'return_home') and self.get_parameter('require_health').value:
             if time.monotonic() - self._health_received > 2.0 or not self.telemetry.get('hardware_health', {}).get('ready', False):
                 return self._response(action, False, 'Motion inhibited: required sensor/drive health is unavailable.')
         if action == 'estop':
@@ -512,6 +564,8 @@ class ROSBridgeNode(Node):
                 self._stop_navigation('Mode changed; navigation cancelled.')
             self.safety_manager.set_mode(mode)
         elif action == 'joystick':
+            if self.get_parameter('require_site_geofence').value and not self.geofence_manager.enabled:
+                return self._response(action, False, 'Site geofence must be configured before manual driving.')
             linear = float(data.get('linear_x', 0.0))
             angular = float(data.get('angular_z', 0.0))
             if not math.isfinite(linear) or not math.isfinite(angular):
@@ -527,6 +581,45 @@ class ROSBridgeNode(Node):
             msg.linear.x, msg.angular.z = linear, angular
             self.cmd_vel_pub.publish(msg)
             return None
+        elif action == 'set_home':
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
+                return self._response(action, False, 'Stop navigation and wait for cancellation before changing home.')
+            if data.get('frame', self.global_frame) != self.global_frame:
+                return self._response(action, False, 'Home must be in the map/global frame.')
+            if not self._update_pose_from_tf():
+                return self._response(action, False, 'Fresh localization is required to set home.')
+            has_x, has_y = 'x' in data, 'y' in data
+            if has_x != has_y:
+                return self._response(action, False, 'Supply both home x and y, or neither to capture current pose.')
+            pose = self.telemetry['pose']
+            coords = self.mission_manager._coordinates(
+                data['x'] if has_x else pose['x'],
+                data['y'] if has_y else pose['y'],
+                data.get('z', pose['z']), yaw=None)
+            valid, message = self.geofence_manager.is_valid_mission(
+                [coords], pose, self.geofence_margin)
+            if not valid:
+                return self._response(action, False, message)
+            if self.geofence_manager.enabled and self._map_info is None:
+                return self._response(action, False, 'A live map is required with the geofence enabled.')
+            self.home_pose = coords
+            self.home_source = 'operator_map_coordinates' if has_x else 'captured_live_tf'
+        elif action == 'clear_home':
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
+                return self._response(action, False, 'Cannot clear home during active navigation.')
+            self.home_pose = None
+            self.home_source = None
+        elif action == 'return_home':
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
+                return self._response(action, False, 'Cancel navigation and wait for the stop before returning home.')
+            if self.home_pose is None:
+                return self._response(action, False, 'Home has not been configured in this session.')
+            target = self.home_pose
+            success, message = self.send_nav_goal(target['x'], target['y'], z=target['z'])
+            if success and self._active_navigation:
+                self._active_navigation['purpose'] = 'return_home'
+                self.navigation['message'] = 'Returning to the configured home position.'
+            return self._response(action, success, message)
         elif action == 'nav_goal':
             coords = self.mission_manager._coordinates(data.get('x'), data.get('y'), data.get('z', self.telemetry['pose']['z']), yaw=None)
             success, message = self.send_nav_goal(coords['x'], coords['y'], None, coords['z'])
@@ -582,6 +675,8 @@ class ROSBridgeNode(Node):
             return False, 'Fresh calibrated RTK-fixed position is required.'
         if not self.safety_manager.validate_auto_command():
             return False, 'Navigation requires AUTO mode and a cleared e-stop.'
+        if self.get_parameter('require_site_geofence').value and not self.geofence_manager.enabled:
+            return False, 'Site geofence must be configured before autonomous navigation.'
         if self._active_navigation is not None and not resuming:
             return False, 'Navigation is already active or cancellation is pending.'
         if not self.check_nav2():
@@ -794,7 +889,9 @@ class ROSBridgeNode(Node):
                 self.mission_manager.waypoints[operation['index']]['status']='ACTIVE'
                 self.mission_manager.message=f"Navigating to waypoint {operation['index']+1}."
                 self._dispatch_target(operation);return
-        self._finish_navigation(operation,'COMPLETED','Target reached; fresh XYZ position verified.')
+        self._finish_navigation(operation, 'COMPLETED',
+            'Home reached; fresh XYZ position verified.' if operation.get('purpose') == 'return_home'
+            else 'Target reached; fresh XYZ position verified.')
 
     def _finish_navigation(self, operation, state, message):
         if self._active_navigation is not operation:
@@ -821,7 +918,13 @@ class ROSBridgeNode(Node):
                            'estop': self.safety_manager.estop_active, 'mission': self.mission_manager.get_status(),
                            'geofence': self.geofence_manager.get_status(), 'localization': self.telemetry['localization'],
                            'gnss': self.telemetry['gnss'], 'hardware_health': self.telemetry['hardware_health'], 'slam': self.telemetry.get('slam', {}),
-                           'path_history': self.path_history, 'nav2_ready': self.nav2_ready, 'navigation': self.navigation})
+                           'path_history': self.path_history, 'nav2_ready': self.nav2_ready,
+                           'navigation': self.navigation,
+                           'home': {'configured': self.home_pose is not None,
+                                    'pose': copy.deepcopy(self.home_pose),
+                                    'source': self.home_source},
+                           'battery': self.operational_status.battery(),
+                           'alerts': self.operational_status.alerts()})
 
     @synchronized
     def get_map_snapshot(self):
