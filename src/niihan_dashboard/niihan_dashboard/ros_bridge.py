@@ -84,6 +84,13 @@ class ROSBridgeNode(Node):
             'imu': {'ax': 0.0, 'ay': 0.0, 'az': 0.0, 'wx': 0.0, 'wy': 0.0, 'wz': 0.0},
             'localization': {'source': 'TF', 'health': 'UNAVAILABLE', 'confidence': None, 'age': None},
         }
+        # Independent wheel feedback is used only to verify that motion stopped.
+        # GLIM odometry /odom remains the position/localization input.
+        self._wheel_motion = None
+        self._wheel_received = -math.inf
+        self._wheel_stamp = -math.inf
+        self._wheel_max_age = 0.75
+
         self.pose_valid = False
         self._last_tf_stamp = None
         self._last_tf_advance = None
@@ -115,6 +122,8 @@ class ROSBridgeNode(Node):
         self.keepout_pub = self.create_publisher(OccupancyGrid, '/niihan/geofence_mask', latched)
         self.filter_info_pub = self.create_publisher(CostmapFilterInfo, '/niihan/geofence_filter_info', latched)
         self.create_subscription(Odometry, '/odom', self.odom_callback, qos_profile_sensor_data)
+        self.create_subscription(Odometry, '/niihan/wheel/odom',
+                                 self.wheel_odom_callback, qos_profile_sensor_data)
         self.telemetry['gnss'] = {'available': False, 'quality': 'unknown', 'satellite_count':None, 'hdop':None, 'vdop':None, 'lock':False, 'rtk_lock':False,'goal_verification_required':self.rtk_goal_verification}
         self.gnss_metrics_received=-math.inf;self.gnss_fix_received=-math.inf
         self.telemetry['hardware_health'] = {'ready': False, 'faults': ['waiting_for_supervisor']}
@@ -224,6 +233,23 @@ class ROSBridgeNode(Node):
             self.pointcloud_data = points
             self.pointcloud_metadata = {'frame_id':msg.header.frame_id,'stamp':msg.header.stamp.sec+msg.header.stamp.nanosec/1e9,'pose_stamp':msg.header.stamp.sec+msg.header.stamp.nanosec/1e9,'pose':pose}
             self.pc_generation += 1
+
+    @synchronized
+    def wheel_odom_callback(self, msg):
+        """Record fresh independent motion feedback; never infer stopped from stale data."""
+        twist = msg.twist.twist
+        linear_x, linear_y, angular_z = (
+            float(twist.linear.x), float(twist.linear.y), float(twist.angular.z))
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if not all(math.isfinite(v) for v in (linear_x, linear_y, angular_z, stamp)):
+            return
+        if stamp <= self._wheel_stamp:
+            return
+        self._wheel_stamp = stamp
+        self._wheel_received = time.monotonic()
+        self._wheel_motion = {
+            'linear_x': linear_x, 'linear_y': linear_y, 'angular_z': angular_z
+        }
 
     @synchronized
     def odom_callback(self, msg):
@@ -740,9 +766,18 @@ class ROSBridgeNode(Node):
         pose=self.rtk_pose if use_rtk else self.telemetry['pose']
         tolerance=self.rtk_goal_tolerance if use_rtk else self.goal_verify_position_tolerance
         error=math.dist([pose[a] for a in ('x','y','z')],[target[a] for a in ('x','y','z')])
-        velocity=self.telemetry.get('velocity',{})
-        stopped=abs(velocity.get('linear_x',math.inf))<=.05 and abs(velocity.get('angular_z',math.inf))<=.05
-        self.navigation.update(xyz_error_m=error,verification_source='RTK' if use_rtk else 'SLAM TF')
+        # GLIM can report residual velocity when Gazebo and wheel odometry are stopped.
+        # Require independent, fresh wheel motion before accepting an arrival.
+        wheel = self._wheel_motion
+        wheel_fresh = wheel is not None and now - self._wheel_received <= self._wheel_max_age
+        linear_speed = math.hypot(wheel['linear_x'], wheel['linear_y']) if wheel_fresh else math.inf
+        angular_speed = abs(wheel['angular_z']) if wheel_fresh else math.inf
+        stopped = wheel_fresh and linear_speed <= .05 and angular_speed <= .05
+        self.navigation.update(xyz_error_m=error,
+                               verification_source='RTK' if use_rtk else 'SLAM TF',
+                               stop_verification_source='wheel_odometry',
+                               wheel_motion_fresh=wheel_fresh,
+                               wheel_speed_mps=linear_speed if wheel_fresh else None)
         if not stopped or error>tolerance:
             operation['arrival_started']=None;operation['arrival_stamps'].clear();return
         if operation['arrival_started'] is None:operation['arrival_started']=now
