@@ -581,7 +581,7 @@ class ROSBridgeNode(Node):
             self.cmd_vel_pub.publish(msg)
             return None
         elif action == 'set_home':
-            if self._active_navigation is not None:
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
                 return self._response(action, False, 'Stop navigation and wait for cancellation before changing home.')
             if data.get('frame', self.global_frame) != self.global_frame:
                 return self._response(action, False, 'Home must be in the map/global frame.')
@@ -604,12 +604,12 @@ class ROSBridgeNode(Node):
             self.home_pose = coords
             self.home_source = 'operator_map_coordinates' if has_x else 'captured_live_tf'
         elif action == 'clear_home':
-            if self._active_navigation is not None:
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
                 return self._response(action, False, 'Cannot clear home during active navigation.')
             self.home_pose = None
             self.home_source = None
         elif action == 'return_home':
-            if self._active_navigation is not None:
+            if self._active_navigation is not None or self.mission_manager.state in ('RUNNING', 'PAUSING', 'PAUSED'):
                 return self._response(action, False, 'Cancel navigation and wait for the stop before returning home.')
             if self.home_pose is None:
                 return self._response(action, False, 'Home has not been configured in this session.')
