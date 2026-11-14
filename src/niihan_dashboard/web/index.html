@@ -4,9 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIIHAN GCS | 4WD SKID-STEER</title>
-    <link rel="stylesheet" href="css/dashboard.css?v=20261009">
+    <link rel="stylesheet" href="css/dashboard.css?v=20261114sat">
+    <link href="https://unpkg.com/maplibre-gl@6.18.0/dist/maplibre-gl.css" rel="stylesheet">
     <script src="vendor/three.min.js"></script>
     <script src="vendor/OrbitControls.js"></script>
+    <script defer src="https://unpkg.com/maplibre-gl@6.18.0/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 </head>
 <body>
@@ -33,6 +35,7 @@
                 <button class="tab-btn active" data-target="view-3d">3D SLAM</button>
                 <button class="tab-btn" data-target="view-2d">2D NAV MAP</button>
                 <button class="tab-btn" data-target="view-site">VISUAL SITE MAP</button>
+                <button class="tab-btn" data-target="view-satellite">SATELLITE MAP</button>
             </div>
 
             <div class="view-container active" id="view-3d">
@@ -72,6 +75,33 @@
                 </div>
                 <div class="site-planner-status" id="site-planner-status" role="status" aria-live="polite">
                     Select a local GLB. Visual model never overrides the 2D Nav2 safety map.
+                </div>
+            </div>
+
+            <div class="view-container" id="view-satellite">
+                <div id="satellite-map-canvas" aria-label="GNSS satellite mission planning map"></div>
+                <div class="sat-controls">
+                    <strong>GNSS SATELLITE PLANNER</strong>
+                    <label>MapTiler key <input id="sat-key" type="password" placeholder="Your satellite API key" autocomplete="off"></label>
+                    <button id="sat-satellite" class="btn" type="button">SATELLITE</button>
+                    <button id="sat-street" class="btn" type="button">STREET</button>
+                    <button id="sat-center-robot" class="btn" type="button">CENTER ROBOT</button>
+                    <div class="sat-calibration">
+                        <label>Origin lat <input id="sat-origin-lat" type="number" step="any" placeholder="WGS84 latitude"></label>
+                        <label>Origin lon <input id="sat-origin-lon" type="number" step="any" placeholder="WGS84 longitude"></label>
+                        <label>ROS X <input id="sat-map-x" type="number" step="any" value="0"></label>
+                        <label>ROS Y <input id="sat-map-y" type="number" step="any" value="0"></label>
+                        <label>Map yaw ° <input id="sat-map-yaw" type="number" step="any" value="0"></label>
+                        <button id="sat-use-fix" class="btn" type="button">USE ROBOT AS ANCHOR</button>
+                    </div>
+                    <label class="sat-check"><input id="sat-confirm" type="checkbox">
+                        I verified datum, yaw and a SECOND known landmark against ROS /map</label>
+                    <button id="sat-send-drafts" class="btn btn-primary" type="button">SEND VALID GPS DRAFTS</button>
+                    <button id="sat-clear-drafts" class="btn" type="button">CLEAR DRAFTS</button>
+                    <span id="sat-gnss-status" role="status">Waiting for GNSS telemetry</span>
+                </div>
+                <div id="sat-status" class="sat-status" role="status" aria-live="polite">
+                    Satellite imagery is only a visual layer. Navigation requires a validated ROS /map goal.
                 </div>
             </div>
         </div>
@@ -176,6 +206,7 @@
     <script src="js/viewer2d.js?v=20261009"></script>
     <script src="js/viewer3d.js?v=20261009"></script>
     <script src="js/site_planner.js?v=20261103a"></script>
+    <script src="js/satellite_planner.js?v=20261114a"></script>
     <script src="js/dashboard.js?v=20261030b"></script>
 </body>
 </html>

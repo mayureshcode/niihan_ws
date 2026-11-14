@@ -37,6 +37,7 @@ let tempPolygon = [];
 let viewer3d = null;
 let viewer2d = null;
 let sitePlanner = null;
+let satellitePlanner = null;
 
 window.addEventListener('load', () => {
     viewer2d = new Viewer2D('map-canvas');
@@ -59,6 +60,16 @@ window.addEventListener('load', () => {
         const status=document.getElementById('site-planner-status');
         if(status)status.textContent='Visual planner unavailable: '+error.message;
         console.warn('Visual site planner unavailable:',error);
+    }
+    try {
+        satellitePlanner = new SatellitePlanner('satellite-map-canvas', (x, y) => {
+            if (!isConnected || missionIsRunning) return false;
+            return sendCommand({action: 'add_waypoint', x: x, y: y, z: robotPose.z});
+        });
+    } catch (error) {
+        console.warn('Satellite map unavailable:', error);
+        const status = document.getElementById('sat-status');
+        if (status) status.textContent = 'Satellite map unavailable: ' + error.message;
     }
     // An unavailable CDN or WebGL context must not disable the 2D planner.
     try {
@@ -87,6 +98,8 @@ window.addEventListener('load', () => {
                 viewer2d.requestRender();
             } else if (btn.dataset.target === 'view-site' && sitePlanner) {
                 sitePlanner.resize();
+            } else if (btn.dataset.target === 'view-satellite' && satellitePlanner) {
+                satellitePlanner.resize();
             }
         });
     });
@@ -123,12 +136,14 @@ function connectWebSocket() {
 
     ws.onopen = () => {
         isConnected = true;
+        if (satellitePlanner) satellitePlanner.setConnection(true);
         elConn.textContent = "CONNECTED";
         elConn.className = "status-badge ok";
     };
 
     ws.onclose = () => {
         isConnected = false;
+        if (satellitePlanner) satellitePlanner.setConnection(false);
         camStream.removeAttribute("src");
         camStream.alt = "Camera disconnected";
         elConn.textContent = "DISCONNECTED";
@@ -160,6 +175,7 @@ function connectWebSocket() {
             mapData = data;
             const valid = viewer2d && viewer2d.updateMap(mapData);
             if (sitePlanner && valid) sitePlanner.setMap(mapData);
+            if (satellitePlanner && valid) satellitePlanner.setMap(mapData);
             document.getElementById('map-status-2d').textContent = valid ?
                 `2D MAP: READY | ${data.width} × ${data.height} | ${data.resolution} m/cell | ${data.frame_id || 'map'}` :
                 '2D MAP: INVALID GRID RECEIVED';
@@ -245,6 +261,7 @@ function updateTelemetry(data) {
 
     robotPose = data.pose;
     if (sitePlanner) sitePlanner.setRobot(robotPose);
+    if (satellitePlanner) satellitePlanner.setTelemetry(data);
     if (viewer3d) viewer3d.updateRobotPose(robotPose.x, robotPose.y, robotPose.z, robotPose.yaw, robotPose.roll, robotPose.pitch);
     if (viewer2d) viewer2d.updateRobotPose(robotPose.x, robotPose.y, robotPose.yaw);
 
@@ -259,6 +276,7 @@ function updateTelemetry(data) {
         if (viewer3d) viewer3d.updateWaypoints(waypoints);
         if (viewer2d) viewer2d.updateWaypoints(waypoints);
         if (sitePlanner) sitePlanner.setWaypoints(waypoints);
+        if (satellitePlanner) satellitePlanner.setWaypoints(waypoints);
     }
     renderWaypointTable();
     const completed = waypoints.filter(waypoint => waypoint.status === 'COMPLETED').length;
