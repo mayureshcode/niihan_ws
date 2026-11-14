@@ -371,6 +371,7 @@ class ROSBridgeNode(Node):
         except (ValueError, TypeError):
             pass
 
+    @synchronized
     def hardware_health_callback(self, msg):
         self._health_received = time.monotonic()
         try:
