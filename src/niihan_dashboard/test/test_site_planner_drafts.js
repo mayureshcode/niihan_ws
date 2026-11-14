@@ -78,6 +78,13 @@ assert.equal(t.planner.drafts.length,1);
 
 t=stub();
 t.planner.confirmed=true;
+t.planner.map={width:2,height:2,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(4).fill(0)};
+click(t.planner); // selected point lies outside the currently published 2D grid
+assert.equal(t.sent,1);
+assert.match(t.planner.message,/UNVERIFIED/);
+
+t=stub();
+t.planner.confirmed=true;
 t.planner.map={width:20,height:20,resolution:1,origin:{x:0,y:0,yaw:0},data:Array(400).fill(100)};
 click(t.planner); // occupied area: visual-only draft
 assert.equal(t.sent,0);
