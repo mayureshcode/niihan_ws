@@ -409,3 +409,22 @@ def test_clearing_home_requires_idle_navigation():
     node._active_navigation = None
     assert node._process_command('clear_home', {'action': 'clear_home'})['success']
     assert node.home_pose is None
+
+
+def test_strict_site_mode_requires_geofence_for_manual_commands():
+    node = _home_bridge()
+    node.get_parameter = lambda name: NS(value=name == 'require_site_geofence')
+    response = node._process_command('joystick', {'action':'joystick','linear_x':.1,'angular_z':0.})
+    assert not response['success']
+    assert 'geofence' in response['message'].lower()
+
+
+def test_strict_site_mode_requires_geofence_for_return_home():
+    node = _home_bridge()
+    node.home_pose = {'x':2.,'y':3.,'z':-.6,'yaw':None}
+    node.safety_manager = NS(validate_auto_command=lambda:True)
+    node.get_parameter = lambda name: NS(value=name == 'require_site_geofence')
+    response = node._process_command('return_home', {'action':'return_home'})
+    assert not response['success']
+    assert 'geofence' in response['message'].lower()
+    assert node._active_navigation is None
