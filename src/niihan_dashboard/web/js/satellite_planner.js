@@ -217,6 +217,8 @@ class SatellitePlanner {
         this.canEdit = Boolean(this.connected && data.nav2_ready && !data.estop &&
             !['RUNNING', 'CANCELLING', 'PAUSING', 'PAUSED'].includes((data.mission || {}).state));
         if (!SatelliteGeo.fixValid(g)) {
+            if (this.robotMarker) this.robotMarker.remove();
+            this.centeredOnce = false;
             this.gnssStatus.textContent = 'GNSS unavailable, stale, unlocked or invalid (0,0). Satellite goals blocked.';
             return;
         }
