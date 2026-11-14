@@ -117,7 +117,7 @@ class SitePlanner {
     describe() {
         if(!this.ready)this.setStatus('Select your seaport .glb file to preview it. No upload is performed.');
         else if(!this.confirmed)this.setStatus('PREVIEW ONLY — click to sketch orange visual pins (not navigation waypoints). Verify GLB-to-ROS alignment and confirm before submitting any real waypoints.');
-        else this.setStatus('Click a known free lane to add a waypoint. Unknown areas become visual drafts (not sent). Drafts: '+this.drafts.length+'.');
+        else this.setStatus('Click aligned GLB to add waypoints. Unmapped areas are submitted with warnings; known obstacles remain unsent drafts. Drafts: '+this.drafts.length+'.');
     }
     load(file) {
         this.confirm.checked=false;this.confirmed=false;this.ready=false;
@@ -255,27 +255,33 @@ class SitePlanner {
         this.setStatus(sent+' waypoint(s) submitted for server validation. '+remaining.length+
             ' draft(s) remain pending map coverage or mission editing availability.');
     }
-    // Convert world coordinates into the current ROS occupancy grid. A known,
-    // free target is required; the GLB visual geometry alone is not a safety map.
+    // Clicks on the aligned GLB define waypoint coordinates, as on the 2D map.
+    // Known obstacles are blocked; unknown/out-of-map cells receive a visible
+    // UNVERIFIED warning. No click starts navigation; Nav2 remains authoritative.
     targetIsKnownFree(x,y) {
-        if(![x,y].every(Number.isFinite))return {ok:false,reason:'Invalid waypoint coordinates.'};
+        if(![x,y].every(Number.isFinite))
+            return {ok:false,canDefine:false,reason:'Invalid coordinates.'};
         const m=this.map;
         if(!m||!m.origin||!Array.isArray(m.data)||!m.resolution||!m.width||!m.height)
-            return {ok:false,reason:'2D navigation map unavailable; cannot validate this waypoint.'};
-        const yaw=m.origin.yaw||0,c=Math.cos(-yaw),s=Math.sin(-yaw);
+            return {ok:false,canDefine:true,reason:'No occupancy grid; route not verified.'};
+        const yaw=m.origin.yaw||0,c=Math.cos(-yaw),sin=Math.sin(-yaw);
         const dx=x-m.origin.x,dy=y-m.origin.y;
-        const ix=Math.floor((c*dx-s*dy)/m.resolution);
-        const iy=Math.floor((s*dx+c*dy)/m.resolution);
+        const ix=Math.floor((c*dx-sin*dy)/m.resolution);
+        const iy=Math.floor((sin*dx+c*dy)/m.resolution);
         const radius=Math.ceil(.45/m.resolution);
-        for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
-            const u=ix+dx,v=iy+dy;
-            if(u<0||v<0||u>=m.width||v>=m.height)
-                return {ok:false,reason:'Outside currently mapped navigation area.'};
+        let unknown=false, outside=false;
+        // Inspect all cells so known occupied areas cannot be hidden by unknown cells.
+        for(let j=-radius;j<=radius;j++)for(let i=-radius;i<=radius;i++){
+            const u=ix+i,v=iy+j;
+            if(u<0||v<0||u>=m.width||v>=m.height){outside=true;continue;}
             const value=m.data[v*m.width+u];
-            if(value<0)return {ok:false,reason:'Unmapped area — explore closer before assigning this point.'};
-            if(value>=65)return {ok:false,reason:'Obstacle or inflated footprint area; choose an open lane.'};
+            if(value>=65)
+                return {ok:false,canDefine:false,reason:'Known obstacle within clearance radius.'};
+            if(value<0)unknown=true;
         }
-        return {ok:true};
+        if(outside)return {ok:false,canDefine:true,reason:'Outside the mapped coverage; route not verified.'};
+        if(unknown)return {ok:false,canDefine:true,reason:'Nearby grid cells unmapped; route not verified.'};
+        return {ok:true,canDefine:true,reason:''};
     }
     pick(e) {
         if(!this.ready) {this.describe();return;}
@@ -306,15 +312,18 @@ class SitePlanner {
             return;
         }
         const test=this.targetIsKnownFree(p.x,p.y);
-        if(test.ok) {
+        if(test.canDefine) {
             const sent=this.callback(p.x,p.y);
-            this.setStatus(sent===false
-                ? 'Waypoint not submitted. Check mission state and connection; no motion command sent.'
-                : 'Waypoint sent for validation at X '+p.x.toFixed(2)+', Y '+p.y.toFixed(2)+'. Check mission table.');
+            if(sent===false)
+                this.setStatus('Waypoint not submitted; check mission state and connection.');
+            else if(test.ok)
+                this.setStatus('Waypoint request sent from GLB at X '+p.x.toFixed(2)+', Y '+p.y.toFixed(2)+'. Check mission table.');
+            else
+                this.setStatus('GLB WAYPOINT SUBMITTED (UNVERIFIED) X '+p.x.toFixed(2)+', Y '+p.y.toFixed(2)+
+                    '. '+test.reason+' Confirm in mission table and map the route before starting navigation.');
             return;
         }
-        // Unobserved/off-map space can be planned visually but must never be
-        // sent to Nav2 before it is mapped and verified free.
+        // Clearly occupied locations stay as non-executable drafts.
         if(this.drafts.length>=50){
             this.setStatus('Maximum 50 unsent drafts reached. Map more space before adding others.');
             return;
