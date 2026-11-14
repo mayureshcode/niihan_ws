@@ -331,6 +331,7 @@ def test_lateral_wheel_motion_blocks_arrival(monkeypatch):
 def _home_bridge():
     node, _ = bridge()
     node._active_navigation = None
+    node.mission_manager.cancel_mission()
     node.home_pose = None
     node.home_source = None
     node.global_frame = 'map'
@@ -428,3 +429,11 @@ def test_strict_site_mode_requires_geofence_for_return_home():
     assert not response['success']
     assert 'geofence' in response['message'].lower()
     assert node._active_navigation is None
+
+
+def test_stale_running_mission_state_blocks_home_even_without_action():
+    node = _home_bridge()
+    node.mission_manager.state = 'PAUSED'
+    assert not node._process_command('set_home', {'action': 'set_home'})['success']
+    node.home_pose = {'x':2.,'y':3.,'z':-.6,'yaw':None}
+    assert not node._process_command('return_home', {'action': 'return_home'})['success']
