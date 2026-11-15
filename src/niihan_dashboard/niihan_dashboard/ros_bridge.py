@@ -732,6 +732,20 @@ class ROSBridgeNode(Node):
         operation = self._active_navigation
         if operation is None or operation['kind'] != 'mission' or operation.get('cancelling') or operation.get('paused'):
             return False, 'A running mission is required to pause.'
+        if operation.get('preflight_pending'):
+            operation['preflight_pending'] = False
+            handle = operation.get('preflight_handle')
+            if handle is not None:
+                try:
+                    handle.cancel_goal_async()
+                except Exception:
+                    pass
+            operation.update(paused=True, pausing=False, cancelling=False)
+            self.mission_manager.state = 'PAUSED'
+            self.mission_manager.message = 'Paused before any movement goal was sent.'
+            self.navigation.update(state='PAUSED', message=self.mission_manager.message)
+            self.cmd_vel_pub.publish(Twist())
+            return True, self.mission_manager.message
         operation.update(pausing=True, cancelling=True, failure=False)
         self.mission_manager.state = 'PAUSING'
         self.navigation.update(state='PAUSING', message='Waiting for Nav2 to stop.')
@@ -795,8 +809,9 @@ class ROSBridgeNode(Node):
         target = operation['targets'][operation['index']]
         goal = ComputePathToPose.Goal()
         goal.goal.header.frame_id = self.global_frame
-        goal.goal.pose.position.x = target['x']
-        goal.goal.pose.position.y = target['y']
+        correction = operation.get('correction', (0., 0.))
+        goal.goal.pose.position.x = target['x'] + correction[0]
+        goal.goal.pose.position.y = target['y'] + correction[1]
         goal.goal.pose.position.z = target['z']
         yaw = math.atan2(target['y'] - self.telemetry['pose']['y'],
                          target['x'] - self.telemetry['pose']['x'])
@@ -825,7 +840,10 @@ class ROSBridgeNode(Node):
     def _preflight_goal_response(self, future, operation, token):
         try:
             handle = future.result()
-            if self._active_navigation is not operation or operation.get('preflight_token') != token:
+            if (self._active_navigation is not operation or
+                    operation.get('preflight_token') != token or
+                    not operation.get('preflight_pending') or
+                    operation.get('paused')):
                 if handle is not None and handle.accepted:
                     handle.cancel_goal_async()
                 return
@@ -843,7 +861,10 @@ class ROSBridgeNode(Node):
 
     @synchronized
     def _preflight_result(self, future, operation, token):
-        if self._active_navigation is not operation or operation.get('preflight_token') != token:
+        if (self._active_navigation is not operation or
+                operation.get('preflight_token') != token or
+                not operation.get('preflight_pending') or
+                operation.get('paused')):
             return
         operation['preflight_pending'] = False
         operation['preflight_handle'] = None
@@ -863,8 +884,12 @@ class ROSBridgeNode(Node):
                                         f'Waypoint {operation["index"] + 1} rejected: {reason} (Nav2 {code}).')
                 return
             target = operation['targets'][operation['index']]
+            correction = operation.get('correction', (0., 0.))
+            if result.path.header.frame_id != self.global_frame:
+                self._finish_navigation(operation, 'FAILED', 'Planner returned a route in the wrong frame.')
+                return
             assessment = assess_path(
-                poses, target['x'], target['y'], self.geofence_manager,
+                poses, target['x'] + correction[0], target['y'] + correction[1], self.geofence_manager,
                 self.geofence_margin,
                 max_detour_ratio=float(self.get_parameter('max_route_detour_ratio').value))
             self._set_plan(assessment['points'], 'VERIFIED' if assessment['ok'] else 'REJECTED',
