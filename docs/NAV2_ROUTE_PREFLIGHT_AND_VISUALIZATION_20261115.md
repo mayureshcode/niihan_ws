@@ -36,3 +36,8 @@ Build: `colcon build --symlink-install --packages-select niihan_dashboard niihan
 
 ### Limitations
 Planning results can become stale between preflight and motion; Nav2 still re-plans while driving. This is NOT a certified safety system and cannot prevent falls without actual environment boundary and cliff/ground support protection. No live ROS 2 Jazzy or Gazebo tests have been run from the assistant environment.
+
+## Mapping correctness follow-up — 15 Nov 2026
+The original `niihan_slam.grid.Grid.update()` marked obstacle endpoints as occupied permanently: later observations of free space marked `free=True` but did not clear `occupied=True`, and occupied won when publishing the grid. This is a **source-level phantom-obstacle bug**. The patch clears prior occupied cells **only when a fresh valid point-cloud ray observes them as free** and re-marks all endpoints from that same observation as occupied. Existing unknown cells stay unknown unless observed. Regression tests cover this and endpoint precedence. Restart mapping to start a clean grid; an already-persisted GLIM optimized map may still need review, and a corrected 2D ray projector cannot substitute for verified floor-edge safety. This is NOT live validated in Gazebo.
+
+Dashboard action failures now include Nav2's returned `NavigateToPose.Result.error_code/error_msg` where available; action status 6 alone only means ABORTED and never establishes which recovery/controller fault occurred.
