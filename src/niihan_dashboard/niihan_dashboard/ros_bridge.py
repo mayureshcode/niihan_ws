@@ -891,7 +891,8 @@ class ROSBridgeNode(Node):
             assessment = assess_path(
                 poses, target['x'] + correction[0], target['y'] + correction[1], self.geofence_manager,
                 self.geofence_margin,
-                max_detour_ratio=float(self.get_parameter('max_route_detour_ratio').value))
+                max_detour_ratio=float(self.get_parameter('max_route_detour_ratio').value),
+                start_x=self.telemetry['pose']['x'], start_y=self.telemetry['pose']['y'])
             self._set_plan(assessment['points'], 'VERIFIED' if assessment['ok'] else 'REJECTED',
                            assessment['message'])
             if not assessment['ok']:
