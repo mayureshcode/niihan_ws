@@ -517,3 +517,14 @@ def test_cancel_during_preflight_cannot_dispatch_late_action_result():
                   result=NS(error_code=0, path=NS(poses=[])))), op, 7)
     assert not sent
     assert published
+
+
+def test_nav2_abort_exposes_action_error_instead_of_only_status_six():
+    node, operation = bridge()
+    nav_result = NS(status=GoalStatus.STATUS_ABORTED,
+                    result=NS(error_code=105, error_msg='Failed to make progress'))
+    node._goal_result(future(nav_result), operation, 1)
+    assert node.mission_manager.state == 'FAILED'
+    assert '105' in node.navigation['message']
+    assert 'Failed to make progress' in node.navigation['message']
+    assert 'ABORTED' in node.navigation['message']
