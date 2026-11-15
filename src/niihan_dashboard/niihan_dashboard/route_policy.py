@@ -8,7 +8,8 @@ import math
 
 def assess_path(poses, goal_x, goal_y, geofence=None, margin=0.0,
                 max_detour_ratio=4.0, min_detour_limit_m=12.0,
-                max_goal_error_m=0.3):
+                max_goal_error_m=0.3, start_x=None, start_y=None,
+                max_start_error_m=0.6):
     points = []
     for stamped in poses:
         p = stamped.pose.position
@@ -18,6 +19,12 @@ def assess_path(poses, goal_x, goal_y, geofence=None, margin=0.0,
         points.append({'x': x, 'y': y})
     if not points:
         return {'ok': False, 'message': 'Planner returned an empty path.', 'points': []}
+    if len(points) < 2:
+        return {'ok': False, 'message': 'Planner returned an incomplete path.', 'points': points}
+    if start_x is not None and start_y is not None:
+        start_error = math.hypot(points[0]['x'] - start_x, points[0]['y'] - start_y)
+        if start_error > max_start_error_m:
+            return {'ok': False, 'message': f'Planner path starts {start_error:.2f} m from localized robot.', 'points': points}
     goal_error = math.hypot(points[-1]['x'] - goal_x, points[-1]['y'] - goal_y)
     if goal_error > max_goal_error_m:
         return {'ok': False, 'message': f'Planner endpoint differs from requested goal by {goal_error:.2f} m.', 'points': points}
