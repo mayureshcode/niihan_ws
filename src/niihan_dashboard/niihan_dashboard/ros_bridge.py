@@ -991,7 +991,18 @@ class ROSBridgeNode(Node):
             return
         if status != GoalStatus.STATUS_SUCCEEDED:
             state = 'CANCELLED' if status == GoalStatus.STATUS_CANCELED else 'FAILED'
-            self._finish_navigation(operation, state, f'Nav2 goal ended with status {status}.')
+            detail_result = getattr(result, 'result', None)
+            code = getattr(detail_result, 'error_code', None)
+            reason = str(getattr(detail_result, 'error_msg', '') or '').strip()
+            status_name = ('CANCELED' if status == GoalStatus.STATUS_CANCELED
+                           else 'ABORTED' if status == GoalStatus.STATUS_ABORTED
+                           else str(status))
+            detail = f' (Nav2 error {code})' if code is not None else ''
+            if reason:
+                detail += f': {reason[:240]}'
+            self._finish_navigation(
+                operation, state,
+                f'Nav2 navigation {status_name}{detail}; waypoint not reached.')
             return
         target = operation['target']
         if not self._update_pose_from_tf():
