@@ -13,3 +13,29 @@ def test_registration_recovers_known_planar_transform():
 
 def test_no_overlap_rejected():
     p=np.arange(300).reshape(-1,3).astype(float);_,rmse,overlap=icp_planar(p,cKDTree(p+1000),[0.,0.,0.]);assert np.isinf(rmse);assert overlap==0
+
+
+def test_fresh_lidar_ray_clears_stale_occupied_hit_but_keeps_new_endpoint():
+    """An obstacle removed between scans must not remain as a phantom Nav2 wall."""
+    g = Grid(.1, 120)
+    origin = [0., 0., .5]
+    g.update(np.array([[2., 0., .5]]), origin, 0.)
+    old_cell = g.cells([[2., 0.]])[0]
+    assert g.data()[old_cell[1], old_cell[0]] == 100
+
+    # New ray reaches a more distant obstacle in the same direction:
+    # the earlier 2m endpoint is now a directly observed FREE cell.
+    g.update(np.array([[4., 0., .5]]), origin, 0.)
+    new_cell = g.cells([[4., 0.]])[0]
+    assert g.data()[old_cell[1], old_cell[0]] == 0
+    assert g.data()[new_cell[1], new_cell[0]] == 100
+
+
+def test_fresh_endpoints_win_even_if_other_ray_passes_through_them():
+    g = Grid(.1, 120)
+    origin = [0., 0., .5]
+    g.update(np.array([[2., 0., .5], [4., 0., .5]]), origin, 0.)
+    close_cell = g.cells([[2., 0.]])[0]
+    far_cell = g.cells([[4., 0.]])[0]
+    assert g.data()[close_cell[1], close_cell[0]] == 100
+    assert g.data()[far_cell[1], far_cell[0]] == 100

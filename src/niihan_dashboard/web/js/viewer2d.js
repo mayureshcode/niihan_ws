@@ -6,6 +6,8 @@ class Viewer2D {
         this.mapImage = null;
         this.robotPose = null;
         this.waypoints = [];
+        this.navPath = [];
+        this.navPathState = 'IDLE';
         this.geofence = [];
         this.center = {x: 0, y: 0};
         this.scale = 10; // backing-canvas pixels per meter
@@ -94,6 +96,13 @@ class Viewer2D {
 
     updateWaypoints(waypoints) {
         this.waypoints = waypoints;
+        this.requestRender();
+    }
+
+    updateNavPath(points, state) {
+        this.navPath = Array.isArray(points) ? points.filter(p =>
+            Number.isFinite(p.x) && Number.isFinite(p.y)) : [];
+        this.navPathState = state || 'IDLE';
         this.requestRender();
     }
 
@@ -204,6 +213,7 @@ class Viewer2D {
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         if (this.mapData) this.drawMap();
         if (this.geofence.length) this.drawGeofence();
+        if (this.navPath.length) this.drawNavPath();
         if (this.waypoints.length) this.drawWaypoints();
         if (this.robotPose) this.drawRobot();
     }
@@ -238,6 +248,27 @@ class Viewer2D {
             this.ctx.arc(p.x, p.y, 3 * this.pixelRatio, 0, 2 * Math.PI);
             this.ctx.fill();
         }
+    }
+
+    drawNavPath() {
+        if (!this.navPath.length) return;
+        this.ctx.save();
+        this.ctx.strokeStyle = this.navPathState === 'REJECTED' ? '#ff9a40' : '#08d8f6';
+        this.ctx.lineWidth = 3.5 * this.pixelRatio;
+        this.ctx.setLineDash([]);
+        this.ctx.beginPath();
+        this.navPath.forEach((point, index) => {
+            const p = this.worldToCanvas(point.x, point.y);
+            if (index === 0) this.ctx.moveTo(p.x, p.y);
+            else this.ctx.lineTo(p.x, p.y);
+        });
+        this.ctx.stroke();
+        this.ctx.fillStyle = this.ctx.strokeStyle;
+        this.ctx.font = `${12 * this.pixelRatio}px sans-serif`;
+        this.ctx.fillText(this.navPathState === 'REJECTED' ?
+            'NAV2 ROUTE REJECTED' : 'NAV2 PLANNED ROUTE',
+            14 * this.pixelRatio, 26 * this.pixelRatio);
+        this.ctx.restore();
     }
 
     drawWaypoints() {

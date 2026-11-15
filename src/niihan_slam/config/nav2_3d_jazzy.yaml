@@ -256,7 +256,9 @@ planner_server:
       # Reach the requested goal cell rather than a nearby substitute.
       tolerance: 0.0
       cost_travel_multiplier: 2.0
-      max_planning_time: 0.4
+      # Allow bounded A* search on a 1200x1200 seaport costmap.
+      # Does not relax unknown-space, obstacle, or geofence constraints.
+      max_planning_time: 2.0
     expected_planner_frequency: 2.0
     planner_plugins:
     - GridBased
