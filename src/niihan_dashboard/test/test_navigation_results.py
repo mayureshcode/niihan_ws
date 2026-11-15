@@ -336,6 +336,8 @@ def _home_bridge():
     node.home_source = None
     node.global_frame = 'map'
     node.geofence_manager = GeofenceManager()
+    node.geofence_margin = .45
+    node._map_info = None
     node.get_parameter = lambda name: NS(value=False)
     node._update_pose_from_tf = lambda: True
     return node
