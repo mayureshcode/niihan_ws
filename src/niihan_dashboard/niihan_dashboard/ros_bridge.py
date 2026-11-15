@@ -14,10 +14,10 @@ from rclpy.clock import Clock, ClockType
 from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist, PoseStamped
-from nav_msgs.msg import Odometry, OccupancyGrid
+from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from sensor_msgs.msg import JointState, Imu, Image, PointCloud2, NavSatFix, BatteryState
 from std_msgs.msg import Bool, String
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from nav2_msgs.msg import CostmapFilterInfo
 from action_msgs.msg import GoalStatus
 from lifecycle_msgs.srv import GetState
@@ -29,6 +29,7 @@ from niihan_dashboard.safety_manager import SafetyManager
 from niihan_dashboard.mission_manager import MissionManager
 from niihan_dashboard.geofence_manager import GeofenceManager
 from niihan_dashboard.operational_status import OperationalStatus
+from niihan_dashboard.route_policy import assess_path
 
 
 def synchronized(method):
@@ -56,7 +57,7 @@ class ROSBridgeNode(Node):
                             ('goal_verify_position_tolerance', 0.25),
                             ('arrival_dwell_seconds',1.0),('rtk_goal_verification',False),('rtk_goal_tolerance',0.10),
                             ('geofence_margin', 0.45), ('battery_simulation', False),
-                            ('require_site_geofence', False)):
+                            ('require_site_geofence', False), ('max_route_detour_ratio', 4.0)):
             self.declare_parameter(name, value)
         self.global_frame = self.get_parameter('global_frame').value
         self.base_frame = self.get_parameter('robot_base_frame').value
@@ -116,6 +117,9 @@ class ROSBridgeNode(Node):
         self.pointcloud_metadata = None
         self.last_pc_time = 0.0
         self._active_navigation = None
+        self._plan_generation = 0
+        self._plan_snapshot = {'type': 'nav_plan', 'state': 'IDLE', 'message': '',
+                               'points': []}
         self._next_request_id = 0
         self.navigation = {'state': 'IDLE', 'message': '', 'target': None}
         self.nav2_ready = False
@@ -152,6 +156,8 @@ class ROSBridgeNode(Node):
         self.create_subscription(String, '/robot_description', self.robot_description_callback, latched)
         self.create_subscription(Image, '/niihan/sensors/panoramic/front/image_raw', self.image_callback, qos_profile_sensor_data)
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
+        self.compute_path_client = ActionClient(self, ComputePathToPose, '/compute_path_to_pose')
+        self.create_subscription(Path, '/plan', self.plan_callback, 10)
         self._nav2_lifecycle = {name:{'client':self.create_client(GetState,'/'+name+'/get_state'), 'active':False, 'received':0., 'requested':0., 'future':None}
                                 for name in ('controller_server','planner_server','bt_navigator','behavior_server','velocity_smoother')}
         # A paused /clock must not freeze the manual watchdog or localization stop.
@@ -456,7 +462,16 @@ class ROSBridgeNode(Node):
         operation = self._active_navigation
         if operation is not None:
             was_paused = operation.get('paused', False)
+            preflight_pending = operation.get('preflight_pending', False)
             operation.update(cancelling=True, pausing=False, paused=False)
+            if preflight_pending:
+                operation['preflight_pending'] = False
+                preflight_handle = operation.get('preflight_handle')
+                if preflight_handle is not None:
+                    try:
+                        preflight_handle.cancel_goal_async()
+                    except Exception as exc:
+                        self.get_logger().warning(f'Could not cancel pending path calculation: {exc}')
             operation['failure'] = failed
             if operation['kind'] == 'mission':
                 self.mission_manager.cancel_mission()
@@ -472,7 +487,7 @@ class ROSBridgeNode(Node):
                 except Exception as exc:
                     self.get_logger().error(f'Could not send action cancellation: {exc}')
             self.navigation.update(state='FAILED' if failed else 'CANCELLED', message=message)
-            if was_paused or operation.get('arrival_pending'):
+            if was_paused or operation.get('arrival_pending') or preflight_pending:
                 self._finish_navigation(operation, 'FAILED' if failed else 'CANCELLED', message)
         self.cmd_vel_pub.publish(Twist())
 
@@ -510,6 +525,9 @@ class ROSBridgeNode(Node):
         elif self.safety_manager.mode == 'MANUAL' and not self.safety_manager.can_move():
             self.cmd_vel_pub.publish(Twist())
         self._check_arrival()
+        op = self._active_navigation
+        if op is not None and op.get('preflight_pending') and now - op.get('preflight_started', now) > 10.0:
+            self._stop_navigation('Route validation timed out; no motion sent.', failed=True)
         if hasattr(self, 'operational_status'):
             self.operational_status.evaluate(
                 pose_valid=valid,
@@ -740,7 +758,136 @@ class ROSBridgeNode(Node):
         self.mission_manager.message = f"Resuming waypoint {operation['index'] + 1}."
         return self._dispatch_target(operation)
 
+    def _set_plan(self, points, state, message):
+        # Downsample only for visualization; safety evaluates ALL original poses.
+        stride = max(1, math.ceil(len(points) / 1200))
+        selected = points[::stride]
+        if points and (not selected or selected[-1] is not points[-1]):
+            selected = selected + [points[-1]]
+        self._plan_snapshot = {'type': 'nav_plan', 'state': state,
+                               'message': message, 'points': selected}
+        self._plan_generation += 1
+
+    @synchronized
+    def get_plan_snapshot(self):
+        return self._plan_generation, json.dumps(self._plan_snapshot)
+
+    @synchronized
+    def plan_callback(self, msg):
+        """Live Nav2 plan, distinct from the dashboard's waypoint-order line."""
+        op = self._active_navigation
+        if op is None or op.get('preflight_pending') or op.get('cancelling'):
+            return
+        if msg.header.frame_id != self.global_frame or not msg.poses:
+            return
+        points = [{'x': float(p.pose.position.x), 'y': float(p.pose.position.y)}
+                  for p in msg.poses]
+        if all(math.isfinite(p['x']) and math.isfinite(p['y']) for p in points):
+            self._set_plan(points, 'ACTIVE', 'Live Nav2 global path')
+
     def _dispatch_target(self, operation):
+        """Require a real Nav2 plan before sending a movement goal."""
+        if self._active_navigation is not operation or operation.get('cancelling'):
+            return False, 'Navigation cancelled.'
+        if not self.compute_path_client.server_is_ready():
+            self._finish_navigation(operation, 'FAILED', 'Nav2 ComputePathToPose unavailable; no motion sent.')
+            return False, 'Nav2 path calculation unavailable.'
+        target = operation['targets'][operation['index']]
+        goal = ComputePathToPose.Goal()
+        goal.goal.header.frame_id = self.global_frame
+        goal.goal.pose.position.x = target['x']
+        goal.goal.pose.position.y = target['y']
+        goal.goal.pose.position.z = target['z']
+        yaw = math.atan2(target['y'] - self.telemetry['pose']['y'],
+                         target['x'] - self.telemetry['pose']['x'])
+        goal.goal.pose.orientation.z = math.sin(yaw / 2.)
+        goal.goal.pose.orientation.w = math.cos(yaw / 2.)
+        goal.planner_id = 'GridBased'
+        goal.use_start = False  # Use fresh planner-server map->base TF.
+        operation['preflight_token'] = operation.get('preflight_token', 0) + 1
+        token = operation['preflight_token']
+        operation['preflight_pending'] = True
+        operation['preflight_started'] = time.monotonic()
+        operation['preflight_handle'] = None
+        self.navigation.update(state='PLANNING',
+                               message=f'Validating Nav2 route for waypoint {operation["index"] + 1}.',
+                               target=target)
+        self._set_plan([], 'PLANNING', self.navigation['message'])
+        try:
+            future = self.compute_path_client.send_goal_async(goal)
+            future.add_done_callback(lambda f: self._preflight_goal_response(f, operation, token))
+        except Exception as exc:
+            self._finish_navigation(operation, 'FAILED', f'Could not request route: {exc}')
+            return False, f'Could not request route: {exc}'
+        return True, 'Nav2 route validation started; no movement goal sent yet.'
+
+    @synchronized
+    def _preflight_goal_response(self, future, operation, token):
+        try:
+            handle = future.result()
+            if self._active_navigation is not operation or operation.get('preflight_token') != token:
+                if handle is not None and handle.accepted:
+                    handle.cancel_goal_async()
+                return
+            if not handle.accepted:
+                self._finish_navigation(operation, 'FAILED', 'Nav2 path request rejected; no motion sent.')
+                return
+            operation['preflight_handle'] = handle
+            result_future = handle.get_result_async()
+            result_future.add_done_callback(lambda f: self._preflight_result(f, operation, token))
+            if operation.get('cancelling'):
+                handle.cancel_goal_async()
+        except Exception as exc:
+            if self._active_navigation is operation:
+                self._finish_navigation(operation, 'FAILED', f'Nav2 path action error: {exc}')
+
+    @synchronized
+    def _preflight_result(self, future, operation, token):
+        if self._active_navigation is not operation or operation.get('preflight_token') != token:
+            return
+        operation['preflight_pending'] = False
+        operation['preflight_handle'] = None
+        if operation.get('cancelling') or self.safety_manager.estop_active:
+            self._finish_navigation(operation, 'CANCELLED', 'Path validation cancelled; no motion sent.')
+            return
+        try:
+            action_result = future.result()
+            result = action_result.result
+            code = int(result.error_code)
+            poses = result.path.poses
+            if action_result.status != GoalStatus.STATUS_SUCCEEDED or code != 0 or not poses:
+                known = {206: 'goal occupied', 208: 'no connected collision-free path',
+                         205: 'start occupied'}
+                reason = known.get(code, 'planner failure')
+                self._finish_navigation(operation, 'FAILED',
+                                        f'Waypoint {operation["index"] + 1} rejected: {reason} (Nav2 {code}).')
+                return
+            target = operation['targets'][operation['index']]
+            assessment = assess_path(
+                poses, target['x'], target['y'], self.geofence_manager,
+                self.geofence_margin,
+                max_detour_ratio=float(self.get_parameter('max_route_detour_ratio').value))
+            self._set_plan(assessment['points'], 'VERIFIED' if assessment['ok'] else 'REJECTED',
+                           assessment['message'])
+            if not assessment['ok']:
+                self._finish_navigation(operation, 'FAILED', assessment['message'])
+                return
+            # Recheck mode, sensors, fresh TF, and geofence after async planning.
+            ok, message = self._can_start_navigation(
+                operation['targets'][operation['index']:], resuming=True)
+            if not ok:
+                self._finish_navigation(operation, 'FAILED', f'Route invalidated: {message}')
+                return
+            if self.get_parameter('require_health').value and (
+                    time.monotonic() - self._health_received > 2.0 or
+                    not self.telemetry.get('hardware_health', {}).get('ready', False)):
+                self._finish_navigation(operation, 'FAILED', 'Drive health unavailable after planning.')
+                return
+            self._send_nav_target(operation)
+        except Exception as exc:
+            self._finish_navigation(operation, 'FAILED', f'Route validation error: {exc}')
+
+    def _send_nav_target(self, operation):
         target = dict(operation['targets'][operation['index']])
         if target['yaw'] is None:
             pose = self.telemetry['pose']
@@ -907,6 +1054,8 @@ class ROSBridgeNode(Node):
         if hasattr(self,'map_save') and self.map_save.service_is_ready():
             self.map_save.call_async(Trigger.Request())
         self.navigation.update(state=state, message=message)
+        if state in ('COMPLETED', 'CANCELLED') and hasattr(self, '_plan_generation'):
+            self._set_plan([], state, message)
         self._active_navigation = None
         self.get_logger().info(message)
 
