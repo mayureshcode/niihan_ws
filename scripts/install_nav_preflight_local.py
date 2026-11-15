@@ -27,6 +27,8 @@ FILES = (
     'src/niihan_dashboard/test/test_navigation_results.py',
     'src/niihan_dashboard/test/test_route_policy.py',
     'src/niihan_slam/config/nav2_3d_jazzy.yaml',
+    'src/niihan_slam/niihan_slam/grid.py',
+    'src/niihan_slam/test/test_grid.py',
     'docs/NAV2_ROUTE_PREFLIGHT_AND_VISUALIZATION_20261115.md',
 )
 
