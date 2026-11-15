@@ -249,7 +249,9 @@ map_server:
 planner_server:
   ros__parameters:
     GridBased:
-      allow_unknown: true
+      # Seaport containment: unknown grid cells are NOT traversable.
+      # Mapping must establish known free corridors before autonomy.
+      allow_unknown: false
       plugin: nav2_smac_planner::SmacPlanner2D
       # Reach the requested goal cell rather than a nearby substitute.
       tolerance: 0.0
