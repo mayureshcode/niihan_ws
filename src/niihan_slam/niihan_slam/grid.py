@@ -27,7 +27,14 @@ class Grid:
         for end in cells[order[inds]]:
             n=int(np.max(np.abs(end-start)))
             if n:
-                ray=np.rint(np.linspace(start,end,n+1)).astype(int)[:-1];self.free[ray[:,1],ray[:,0]]=True
+                ray=np.rint(np.linspace(start,end,n+1)).astype(int)[:-1]
+                # A fresh ray observation also clears previously marked endpoints.
+                # Otherwise old GLIM/SLAM hits persist as phantom container walls
+                # and can disconnect all traversable Nav2 map regions.
+                self.free[ray[:,1],ray[:,0]]=True
+                self.occupied[ray[:,1],ray[:,0]]=False
+        # Occupied endpoints from THIS observation win over ray clearing,
+        # including multiple points in the same direction/height bin.
         self.occupied[cells[:,1],cells[:,0]]=True
     def data(self):
         data=np.full(self.free.shape,-1,dtype=np.int8);data[self.free]=0;data[self.occupied]=100;return data
