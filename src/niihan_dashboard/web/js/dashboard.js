@@ -140,6 +140,9 @@ function connectWebSocket() {
             document.getElementById('map-status-2d').textContent = valid ?
                 `2D MAP: READY | ${data.width} × ${data.height} | ${data.resolution} m/cell | ${data.frame_id || 'map'}` :
                 '2D MAP: INVALID GRID RECEIVED';
+        } else if (data.type === "nav_plan") {
+            if (viewer2d) viewer2d.updateNavPath(data.points, data.state);
+            if (data.state === 'REJECTED') showCommandStatus(data.message || 'Nav2 route rejected.');
         } else if (data.type === "pointcloud") {
             if (viewer3d) {
                 viewer3d.updatePointCloud(data.data);
