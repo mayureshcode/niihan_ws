@@ -27,6 +27,7 @@ class DashboardServer:
 
         async def send_telemetry():
             last_map_generation = -1
+            last_plan_generation = -1
             last_pc_gen = -1
             last_img_gen = -1
             last_model_gen = -1
@@ -49,6 +50,11 @@ class DashboardServer:
                         if map_json and generation != last_map_generation:
                             await safe_send(map_json)
                             last_map_generation = generation
+
+                        plan_gen, plan_json = self.ros_node.get_plan_snapshot()
+                        if plan_gen != last_plan_generation:
+                            await safe_send(plan_json)
+                            last_plan_generation = plan_gen
 
                         if self.ros_node.pointcloud_data and self.ros_node.pc_generation != last_pc_gen:
                             pc_str = self.ros_node.get_pointcloud_json()
