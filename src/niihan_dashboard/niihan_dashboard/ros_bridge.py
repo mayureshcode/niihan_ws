@@ -824,9 +824,13 @@ class ROSBridgeNode(Node):
         operation['preflight_pending'] = True
         operation['preflight_started'] = time.monotonic()
         operation['preflight_handle'] = None
-        self.navigation.update(state='PLANNING',
-                               message=f'Validating Nav2 route for waypoint {operation["index"] + 1}.',
-                               target=target)
+        # A fresh goal must not inherit an old arrival-error readout.
+        # Previously an obsolete "SLAM TF error" persisted during RUNNING.
+        self.navigation = {
+            'state': 'PLANNING',
+            'message': f'Validating Nav2 route for waypoint {operation["index"] + 1}.',
+            'target': target,
+        }
         self._set_plan([], 'PLANNING', self.navigation['message'])
         try:
             future = self.compute_path_client.send_goal_async(goal)
