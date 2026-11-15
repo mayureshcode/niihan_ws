@@ -15,6 +15,9 @@ def stack(context):
     environment=LaunchConfiguration('environment_id').perform(context)
     world=LaunchConfiguration('world').perform(context)
     world_file=world if os.path.isabs(world) else os.path.join(desc,'worlds',world)
+    # In the seaport, fail closed until an operator configures a surveyed
+    # map-frame GO polygon. Keep the general-purpose simulator unchanged.
+    site_geofence_required = 'seaport' in world.lower() or 'seaport' in environment.lower()
     directory=environment_directory(LaunchConfiguration('map_directory').perform(context),environment,world_file)
     output=output or str(directory)
     map_file=LaunchConfiguration('map_file').perform(context)
@@ -53,7 +56,7 @@ def stack(context):
         node('niihan_bringup','motion_gateway','motion_gateway',[{'drive_enabled':True}]),
         include(os.path.join(desc,'launch','niihan_navigation.launch.py'),{'use_sim_time':'true','params_file':os.path.join(share,'config','nav2_3d_jazzy.yaml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'nav2_3d.yaml'),'bt_xml':os.path.join(share,'config','navigate_to_pose_position_jazzy.xml' if os.environ.get('ROS_DISTRO')=='jazzy' else 'navigate_to_pose_position.xml')}),
         node('rviz2','rviz2','rviz2',arguments=['-d',os.path.join(share,'config','slam.rviz')],condition=IfCondition(LaunchConfiguration('rviz'))),
-        node('niihan_dashboard','dashboard_node','niihan_dashboard_node',[{'require_health':True,'slam_cloud_topic':'/niihan/slam/map_cloud','rtk_goal_verification':bool(alignment),'arrival_dwell_seconds':1.0}])]
+        node('niihan_dashboard','dashboard_node','niihan_dashboard_node',[{'require_health':True,'slam_cloud_topic':'/niihan/slam/map_cloud','rtk_goal_verification':bool(alignment),'arrival_dwell_seconds':1.0,'require_site_geofence':site_geofence_required}])]
     # Only the common adapter publishes the navigation scan in this profile.
     if mode=='localization':
         nodes.append(node('niihan_slam','saved_localizer','saved_map_localizer',[{'map_file':map_file,'initial_x':float(LaunchConfiguration('initial_x').perform(context)),'initial_y':float(LaunchConfiguration('initial_y').perform(context)),'initial_yaw':float(LaunchConfiguration('initial_yaw').perform(context))}]))
