@@ -459,3 +459,61 @@ def test_battery_ros_topic_callback_converts_standard_fraction():
     assert battery['percentage'] == pytest.approx(72.)
     assert battery['charging'] is False
     assert battery['simulation'] is False
+
+
+def _preflight_bridge():
+    node, op = bridge()
+    node.global_frame = 'map'
+    node.geofence_manager = GeofenceManager()
+    node.geofence_margin = .45
+    node._plan_generation = 0
+    node._plan_snapshot = {'type': 'nav_plan', 'state': 'IDLE', 'points': []}
+    node.get_parameter = lambda name: NS(value=4. if name == 'max_route_detour_ratio' else False)
+    node.safety_manager = NS(estop_active=False)
+    op.update(preflight_pending=True, preflight_token=7)
+    return node, op
+
+
+@pytest.mark.parametrize('code', [206, 208])
+def test_preflight_rejects_occupied_or_disconnected_goal_without_driving(code):
+    node, op = _preflight_bridge()
+    sent = []
+    node._send_nav_target = lambda _: sent.append(True)
+    result = NS(status=GoalStatus.STATUS_ABORTED,
+                result=NS(error_code=code, path=NS(poses=[])))
+    node._preflight_result(future(result), op, 7)
+    assert not sent
+    assert node.mission_manager.state == 'FAILED'
+    assert node._active_navigation is None
+    assert str(code) in node.navigation['message']
+
+
+def test_approved_preflight_dispatches_nav_goal():
+    node, op = _preflight_bridge()
+    sent = []
+    node._can_start_navigation = lambda *args, **kwargs: (True, 'ok')
+    node._send_nav_target = lambda operation: sent.append(operation) or (True, 'sent')
+    pose = lambda x, y: NS(pose=NS(position=NS(x=x, y=y)))
+    route = NS(header=NS(frame_id='map'), poses=[pose(2, 3), pose(2, 3)])
+    result = NS(status=GoalStatus.STATUS_SUCCEEDED,
+                result=NS(error_code=0, path=route))
+    node._preflight_result(future(result), op, 7)
+    assert sent == [op]
+    assert node._plan_snapshot['state'] == 'VERIFIED'
+    assert node._active_navigation is op
+
+
+def test_cancel_during_preflight_cannot_dispatch_late_action_result():
+    node, op = _preflight_bridge()
+    published = []
+    node.cmd_vel_pub = NS(publish=lambda msg: published.append(msg))
+    node._stop_navigation('Operator cancelled.')
+    assert node._active_navigation is None
+    assert not op['preflight_pending']
+    sent = []
+    node._send_nav_target = lambda _: sent.append(True)
+    node._preflight_result(
+        future(NS(status=GoalStatus.STATUS_SUCCEEDED,
+                  result=NS(error_code=0, path=NS(poses=[])))), op, 7)
+    assert not sent
+    assert published
