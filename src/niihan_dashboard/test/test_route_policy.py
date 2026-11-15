@@ -57,3 +57,14 @@ def test_route_safely_inside_go_zone_is_accepted():
     ])[0]
     result = assess_path([p(1, 1), p(2, 2), p(3, 3)], 3, 3, gf, .45)
     assert result['ok']
+
+
+def test_plan_start_must_match_localized_robot():
+    result = assess_path([p(8, 8), p(9, 8)], 9, 8, start_x=0, start_y=0)
+    assert not result['ok']
+    assert 'starts' in result['message']
+
+
+def test_single_point_path_is_not_sufficient():
+    result = assess_path([p(2, 0)], 2, 0)
+    assert not result['ok']
