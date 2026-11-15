@@ -67,18 +67,32 @@ controller_server:
       cost_scaling_gain: 1.0
       desired_linear_vel: 0.2
       inflation_cost_scaling_factor: 3.0
-      lookahead_dist: 0.6
+      lookahead_dist: 0.45
       lookahead_time: 1.5
       max_allowed_time_to_collision_up_to_carrot: 1.0
-      max_lookahead_dist: 0.9
+      max_lookahead_dist: 0.7
       max_robot_pose_search_dist: 10.0
-      min_approach_linear_velocity: 0.03
-      min_lookahead_dist: 0.3
-      plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      min_approach_linear_velocity: 0.05
+      min_lookahead_dist: 0.25
+      # Nav2 Jazzy rotation shim: align once with a newly accepted path before
+      # allowing RPP to track it; no unbounded blind Spin recovery.
+      plugin: nav2_rotation_shim_controller::RotationShimController
+      primary_controller: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      angular_dist_threshold: 0.80
+      angular_disengage_threshold: 0.40
+      forward_sampling_distance: 0.45
+      rotate_to_heading_angular_vel: 0.40
+      max_angular_accel: 0.80
+      max_cost_threshold: 253.0
+      simulate_ahead_time: 1.5
+      rotate_to_goal_heading: false
+      rotate_to_heading_once: true
+      closed_loop: true
+      use_path_orientations: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.05
+      regulated_linear_scaling_min_speed: 0.12
       rotate_to_heading_angular_vel: 0.4
-      rotate_to_heading_min_angle: 0.25
+      rotate_to_heading_min_angle: 0.45
       transform_tolerance: 0.8
       use_collision_detection: true
       use_cost_regulated_linear_velocity_scaling: false
@@ -104,8 +118,10 @@ controller_server:
     min_y_velocity_threshold: 0.5
     progress_checker:
       movement_time_allowance: 30.0
-      plugin: nav2_controller::SimpleProgressChecker
+      # A skid-steer turn is valid progress, even without XY translation.
+      plugin: nav2_controller::PoseProgressChecker
       required_movement_radius: 0.15
+      required_movement_angle: 0.35
     use_sim_time: true
     progress_checker_plugins:
     - progress_checker
