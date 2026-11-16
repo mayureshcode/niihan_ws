@@ -114,6 +114,18 @@ class ROSBridgeNode(Node):
         self.estop_pub = self.create_publisher(Bool, '/niihan/e_stop', latched)
         self.keepout_pub = self.create_publisher(OccupancyGrid, '/niihan/geofence_mask', latched)
         self.filter_info_pub = self.create_publisher(CostmapFilterInfo, '/niihan/geofence_filter_info', latched)
+        self._wheel_odom_received = -math.inf
+        self._wheel_stamp_advanced = -math.inf
+        self._wheel_stamp = None
+        self._wheel_velocity = None
+
+        self.create_subscription(
+            Odometry,
+            '/niihan/wheel/odom',
+            self.wheel_odom_callback,
+            qos_profile_sensor_data
+        )
+
         self.create_subscription(Odometry, '/odom', self.odom_callback, qos_profile_sensor_data)
         self.telemetry['gnss'] = {'available': False, 'quality': 'unknown', 'satellite_count':None, 'hdop':None, 'vdop':None, 'lock':False, 'rtk_lock':False,'goal_verification_required':self.rtk_goal_verification}
         self.gnss_metrics_received=-math.inf;self.gnss_fix_received=-math.inf
@@ -226,6 +238,52 @@ class ROSBridgeNode(Node):
             self.pc_generation += 1
 
     @synchronized
+    def wheel_odom_callback(self, msg):
+        now = time.monotonic()
+
+        linear = msg.twist.twist.linear
+        angular = msg.twist.twist.angular
+
+        values = (
+            linear.x,
+            linear.y,
+            angular.z
+        )
+
+        if not all(math.isfinite(v) for v in values):
+            return
+
+        stamp = (
+            msg.header.stamp.sec,
+            msg.header.stamp.nanosec
+        )
+
+        if stamp != self._wheel_stamp:
+            self._wheel_stamp = stamp
+            self._wheel_stamp_advanced = now
+
+        self._wheel_velocity = values
+        self._wheel_odom_received = now
+
+    def wheel_odom_stopped(self):
+        now = time.monotonic()
+
+        # Never accept an unavailable, frozen or stale source.
+        if self._wheel_velocity is None:
+            return False
+
+        if now - self._wheel_odom_received > 0.75:
+            return False
+
+        if now - self._wheel_stamp_advanced > 0.75:
+            return False
+
+        vx, vy, wz = self._wheel_velocity
+
+        planar_speed = math.hypot(vx, vy)
+
+        return planar_speed <= 0.05 and abs(wz) <= 0.05
+
     def odom_callback(self, msg):
         self.telemetry['velocity'].update(linear_x=msg.twist.twist.linear.x,
                                           linear_y=msg.twist.twist.linear.y,
@@ -734,14 +792,41 @@ class ROSBridgeNode(Node):
         if not operation or not operation.get('arrival_pending') or operation.get('cancelling'):return
         now=time.monotonic();target=operation['target']
         if now>operation['arrival_deadline']:
-            self._finish_navigation(operation,'FAILED','Stopped arrival did not remain within tolerance.');return
+            pose = self.rtk_pose if getattr(self, 'rtk_goal_verification', False) else self.telemetry['pose']
+            velocity = self.telemetry.get('velocity', {})
+            target = operation['target']
+
+            error = math.dist(
+                [pose[a] for a in ('x', 'y', 'z')],
+                [target[a] for a in ('x', 'y', 'z')]
+            )
+
+            linear = velocity.get('linear_x', float('nan'))
+            angular = velocity.get('angular_z', float('nan'))
+
+            message = (
+                f'Arrival verification timeout: '
+                f'XYZ error={error:.3f}m, '
+                f'linear velocity={linear:.3f}m/s, '
+                f'angular velocity={angular:.3f}rad/s.'
+            )
+
+            self.get_logger().error(message)
+            self._finish_navigation(operation, 'FAILED', message)
+            return
         use_rtk=getattr(self,'rtk_goal_verification',False)
         if use_rtk and not self._rtk_ready():self._trigger_estop('RTK lost during arrival verification.');return
         pose=self.rtk_pose if use_rtk else self.telemetry['pose']
         tolerance=self.rtk_goal_tolerance if use_rtk else self.goal_verify_position_tolerance
         error=math.dist([pose[a] for a in ('x','y','z')],[target[a] for a in ('x','y','z')])
         velocity=self.telemetry.get('velocity',{})
-        stopped=abs(velocity.get('linear_x',math.inf))<=.05 and abs(velocity.get('angular_z',math.inf))<=.05
+        if self.get_parameter('use_sim_time').value:
+            stopped = self.wheel_odom_stopped()
+        else:
+            stopped = (
+                abs(velocity.get('linear_x', math.inf)) <= 0.05
+                and abs(velocity.get('angular_z', math.inf)) <= 0.05
+            )
         self.navigation.update(xyz_error_m=error,verification_source='RTK' if use_rtk else 'SLAM TF')
         if not stopped or error>tolerance:
             operation['arrival_started']=None;operation['arrival_stamps'].clear();return
